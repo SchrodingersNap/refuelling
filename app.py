@@ -167,8 +167,7 @@ def fetch_data():
                 while len(d) < 10:
                     d.append("")
 
-         rows.append({
-                    'Flight': d[0], 
+               rows.append({'Flight': d[0], 
                     'Dep': d[1], 
                     'Sector': d[2], 
                     # FIX: Force a default value if empty
@@ -179,8 +178,7 @@ def fetch_data():
                     'Crew': d[7],
                     'Bowser': d[8], 
                     'Comment': d[9],
-                    'OriginalData': item 
-                })
+                    'OriginalData': item })
             return pd.DataFrame(rows)
     except Exception as e:
         st.error(f"Connection Error: {e}")
