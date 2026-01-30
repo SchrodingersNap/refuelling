@@ -1,131 +1,124 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
-import re
 import time
+from datetime import datetime
 
 # --- CONFIGURATION ---
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycby3eZ_n63UM0RvzvtarLQ8d1lL85gtZ050TFvX_8RYlt1lTMJKYQEA-dF8SvfQRce4j4A/exec'
-REFRESH_RATE = 120  # Seconds
+# PASTE YOUR NEW GOOGLE SCRIPT URL HERE
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxwsEQsoP04y6RTXFLEFj8CIyE2yylb5Pd5l_o9E1KP4J-yy9EltQMLwEGdJmdm9VWXBQ/exec'
+REFRESH_RATE = 100 
 
-# --- PAGE SETUP ---
-st.set_page_config(
-    page_title="Flight Ops Dashboard",
-    page_icon="✈️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Field Ops", page_icon="⛽", layout="wide") 
+# Changed layout to "wide" so Master Board fits better
 
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    .stApp { background-color: #f4f6f8; }
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    .stApp { background-color: #f0f2f5; }
+    /* Padding adjustments */
+    .block-container { padding-top: 1rem; padding-bottom: 5rem; }
     
-    /* CARD CONTAINER */
-    .bay-card {
+    /* --- PRIORITY CARD STYLES (RUNNING BAYS) --- */
+    .job-card {
         background: white; border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-left: 6px solid #263238;
-        margin-bottom: 15px; font-family: sans-serif;
-        overflow: hidden;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        padding: 0; margin-bottom: 16px;
+        border-left: 8px solid #cfd8dc;
+        position: relative; overflow: hidden;
     }
     
-    /* HEADER */
-    .card-header {
-        padding: 10px 15px; display: flex; justify-content: space-between; align-items: center;
-        border-bottom: 1px solid #f0f0f0; background: white;
+    /* TRAFFIC LIGHT BORDERS */
+    .priority-critical { border-left-color: #d32f2f !important; } /* RED */
+    .priority-warning { border-left-color: #fbc02d !important; }  /* YELLOW */
+    .priority-safe { border-left-color: #388e3c !important; }     /* GREEN */
+    
+    /* BADGES */
+    .arrow-badge {
+        background: #d32f2f; color: white; width: 100%;
+        text-align: center; font-weight: 900; font-size: 14px;
+        padding: 6px; letter-spacing: 1px;
+        animation: pulse 1.5s infinite;
     }
-    .bay-badge { 
-        font-size: 18px; font-weight: 900; color: #263238;
-        background: #eceff1; padding: 4px 8px; border-radius: 6px;
-    }
-    .bowser-pill { 
-        background: #e8f5e9; color: #2e7d32; padding: 5px 12px; 
-        border-radius: 20px; font-weight: 800; font-size: 14px; 
-        border: 1px solid #c8e6c9; display: flex; align-items: center; gap: 5px;
+    
+    .warning-badge {
+        background: #fbc02d; color: #212121; width: 100%;
+        text-align: center; font-weight: 900; font-size: 14px;
+        padding: 6px; letter-spacing: 1px;
     }
 
-    /* ALERTS */
-    .urgent-banner {
-        background: #d32f2f; color: white; font-weight: 900; text-align: center;
-        padding: 8px; font-size: 13px; animation: blink 1s infinite alternate;
-        width: 100%; display: block;
+    .card-top {
+        background: #ffffff; padding: 12px 16px;
+        display: flex; justify-content: space-between; align-items: center;
+        border-bottom: 1px solid #eee;
     }
-    .divert-msg {
+    
+    .bay-tag { 
+        font-size: 20px; font-weight: 900; color: #263238; 
+        background: #eceff1; padding: 4px 10px; border-radius: 6px;
+    }
+    
+    .bowser-tag { 
+        font-size: 16px; font-weight: 700; color: #1b5e20; 
+        background: #e8f5e9; padding: 4px 12px; border-radius: 20px; 
+        border: 1px solid #c8e6c9;
+    }
+
+    .card-main {
+        padding: 16px; display: flex; justify-content: space-between; align-items: center;
+    }
+    
+    .flight-id { font-size: 28px; font-weight: 800; color: #212121; letter-spacing: -1px; }
+    .dep-time { font-size: 22px; font-weight: 700; color: #424242; }
+    
+    .time-sub { font-size: 11px; font-weight: bold; text-align: right; margin-top: -4px;}
+    .status-red { color: #d32f2f; }
+    .status-orange { color: #f57f17; }
+    .status-green { color: #388e3c; }
+
+    /* DIVERT BANNER */
+    .divert-banner {
         background: #fff3e0; color: #e65100; padding: 10px;
-        font-weight: bold; font-size: 13px; text-align: center; 
-        border-bottom: 1px solid #ffe0b2; width: 100%; display: block;
+        font-weight: bold; font-size: 14px; text-align: center;
+        border-bottom: 1px solid #ffe0b2; display: flex; align-items: center; justify-content: center; gap: 8px;
     }
 
-    /* BODY */
-    .card-body { padding: 15px; display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; }
-    .label { font-size: 10px; color: #90a4ae; font-weight: 700; text-transform: uppercase; }
-    .val { font-size: 15px; font-weight: 600; color: #37474f; }
-    .flight-big { font-size: 24px; font-weight: 800; color: #263238; letter-spacing: -0.5px; line-height: 1; }
+    /* INPUT STYLING */
+    .stTextInput input { padding: 8px; font-size: 14px; }
+    .stButton button { width: 100%; border-radius: 4px; height: 42px; font-weight: bold;}
+
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
     
-    /* WIDGETS */
-    .stat-box {
-        grid-column: 1 / -1; background: #e3f2fd; border: 1px solid #bbdefb;
-        padding: 8px 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
-    }
-    .stat-val { font-size: 18px; color: #1565c0; font-weight: 900; }
-    .time-urgent { color: #d32f2f; font-weight: 900; font-size: 18px; }
-
-    /* CARD VARIANTS */
-    .card-urgent { 
-        border-left-color: #d32f2f !important;
-        box-shadow: 0 0 15px rgba(211, 47, 47, 0.3);
-        animation: pulse-red 2s infinite;
-    }
-    .card-divert { border-left-color: #ff8f00 !important; }
-    .card-divert .card-header {
-        background: repeating-linear-gradient(45deg, #ffb300, #ffb300 10px, #ffca28 10px, #ffca28 20px);
-    }
-
-    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); } }
-    @keyframes blink { from { opacity: 1; } to { opacity: 0.7; } }
+    /* HIDE STREAMLIT HEADER ELEMENTS */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HELPER FUNCTIONS ---
-def parse_time(time_str):
+# --- FUNCTIONS ---
+def parse_dep_time(time_str):
     if not time_str: return None
     s = str(time_str).strip()
     now = datetime.now()
     try:
-        if 'T' in s: return datetime.fromisoformat(s.replace('Z', ''))
-        if ':' in s: 
+        if len(s) == 3: s = "0" + s
+        if len(s) == 4 and s.isdigit():
+            h, m = int(s[:2]), int(s[2:])
+        elif ':' in s:
             parts = s.split(':')
-            return now.replace(hour=int(parts[0]), minute=int(parts[1]), second=0)
-        s = s.zfill(4) 
-        return now.replace(hour=int(s[:2]), minute=int(s[2:]), second=0)
+            h, m = int(parts[0]), int(parts[1])
+        else:
+            return None
+        
+        dep_time = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        
+        if (dep_time - now).total_seconds() < -43200:
+             dep_time = dep_time.replace(day=now.day + 1)
+             
+        return dep_time
     except:
         return None
-
-def calculate_effective_time(row, now):
-    dep = parse_time(row['Dep'])
-    eta = parse_time(row['ETA'])
-    
-    eta_str = str(row['ETA']).upper().strip()
-    if eta_str in ['BASE', 'LANDED']:
-        return dep, False 
-    
-    if eta:
-        return eta + timedelta(minutes=40), True
-    
-    if dep:
-        temp_time = dep
-        diff_min = (temp_time - now).total_seconds() / 60
-        is_calc = False
-        while diff_min <= 60 and diff_min > -600:
-            temp_time += timedelta(minutes=60)
-            diff_min = (temp_time - now).total_seconds() / 60
-            is_calc = True
-        return temp_time, is_calc
-        
-    return None, False
 
 @st.cache_data(ttl=5)
 def fetch_data():
@@ -133,143 +126,150 @@ def fetch_data():
         response = requests.get(SHEET_API_URL)
         if response.status_code == 200:
             data = response.json()
-            
-            if isinstance(data, dict):
-                flight_list = data.get('flights', [])
-            elif isinstance(data, list):
-                flight_list = data
-            else:
-                flight_list = []
-            
             rows = []
-            for item in flight_list:
-                if isinstance(item, dict) and 'data' in item:
-                    d = item['data']
-                else:
-                    d = item
-
+            if isinstance(data, dict): list_data = data.get('flights', [])
+            else: list_data = []
+            
+            for item in list_data:
+                d = item['data'] if isinstance(item, dict) else item
                 if not isinstance(d, list): continue
+                # Ensure we have 11 columns (0-10)
+                while len(d) < 11: d.append("") 
                 
-                while len(d) < 10:
-                    d.append("")
-
+                # GRAB ALL COLUMNS FOR MASTER BOARD
                 rows.append({
-                    'Flight': d[0], 'Dep': d[1], 'Sector': d[2], 
-                    'Percentile': d[3] if str(d[3]).strip() != "" else "--",
-                    'CallSign': d[4], 'Bay': d[5], 'ETA': d[6], 
-                    'Crew': d[7], 'Bowser': d[8], 'Comment': d[9],
-                    'OriginalData': item 
+                    'Flight': d[0], 
+                    'Dep': d[1], 
+                    'Sector': d[2], 
+                    '95th %': d[3],       # Included for Master
+                    'Call Sign': d[4],    # Included for Master
+                    'Bay': d[5], 
+                    'ETA': d[6],          # Included for Master
+                    'Crew': d[7],         # Included for Master
+                    'Bowser': d[8], 
+                    'Comment': d[9],      # Incharge Comment
+                    'Field Feedback': d[10] # Field Feedback
                 })
             return pd.DataFrame(rows)
-    except Exception as e:
-        st.error(f"Connection Error: {e}")
+    except:
+        return pd.DataFrame()
     return pd.DataFrame()
 
-# --- MAIN APP ---
-df = fetch_data()
+def send_feedback(flight_no, comment):
+    try:
+        requests.post(SHEET_API_URL, json={"flight": flight_no, "comment": comment})
+        st.toast(f"✅ Sent for {flight_no}")
+        time.sleep(1)
+        st.rerun()
+    except:
+        st.error("Failed")
 
-if not df.empty:
+# --- APP START ---
+tab_run, tab_master = st.tabs(["🚀 ACTIVE JOBS", "📊 MASTER BOARD"])
+
+# --- TAB 1: RUNNING BAYS (MINIMALIST) ---
+with tab_run:
+    df = fetch_data()
     now = datetime.now()
-    df[['EffectiveTime', 'IsCalculated']] = df.apply(
-        lambda row: pd.Series(calculate_effective_time(row, now)), axis=1
-    )
-    df = df.sort_values(by='EffectiveTime', na_position='last').reset_index(drop=True)
-
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("✈️ Flight Operations")
-    with col2:
-        st.caption(f"Last Sync: {now.strftime('%H:%M:%S')}")
-        if st.button("🔄 Refresh"):
-            st.rerun()
-
-    tab_master, tab_running, tab_crew = st.tabs(["📊 Master Board", "🚀 Running Bays", "👥 Crew"])
-
-    with tab_master:
-        display_df = df[['Flight', 'Dep', 'Sector', 'Percentile', 'CallSign', 'Bay', 'ETA', 'Crew', 'Bowser', 'Comment']].copy()
-        st.dataframe(display_df, use_container_width=True, hide_index=True, height=600)
-
-    with tab_running:
-        running_df = df[df['Bowser'].str.strip() != ""]
-        if running_df.empty:
-            st.info("🚛 No Active Bowsers. Assign a Bowser in Excel.")
-        else:
-            cols = st.columns(3)
-            for index, row in running_df.iterrows():
-                with cols[index % 3]:
-                    # URGENCY
-                    is_urgent = False
-                    mins_to_dep = 999
-                    if pd.notnull(row['EffectiveTime']):
-                        mins_to_dep = (row['EffectiveTime'] - now).total_seconds() / 60
-                        if -15 < mins_to_dep <= 20:
-                            is_urgent = True
+    
+    # Restrict width for mobile feel on this tab
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if not df.empty:
+            running = df[df['Bowser'].str.strip() != ""].copy()
+            
+            if running.empty:
+                st.info("No active jobs.")
+            else:
+                # 1. Calc Time
+                running['DepObj'] = running['Dep'].apply(parse_dep_time)
+                running['MinsLeft'] = running['DepObj'].apply(
+                    lambda x: (x - now).total_seconds() / 60 if x else 9999
+                )
+                
+                # 2. Sort
+                running = running.sort_values(by='MinsLeft')
+                
+                for i, row in running.iterrows():
+                    mins = row['MinsLeft']
                     
-                    time_display = row['EffectiveTime'].strftime("%H:%M") if pd.notnull(row['EffectiveTime']) else row['Dep']
+                    # 3. Logic: 20 / 30 Mins
+                    if mins < 20:
+                        priority_class = "priority-critical"
+                        badge_html = '<div class="arrow-badge">⬆️ PRIORITY</div>'
+                        time_color = "status-red"
+                        time_msg = f"DEP IN {int(mins)} MIN" if mins > 0 else "DEPARTING NOW"
                     
-                    # DIVERT LOGIC
+                    elif mins < 30:
+                        priority_class = "priority-warning"
+                        badge_html = '<div class="warning-badge">⚠️ PREPARE</div>'
+                        time_color = "status-orange"
+                        time_msg = f"{int(mins)} MIN LEFT"
+                    
+                    else:
+                        priority_class = "priority-safe"
+                        badge_html = ""
+                        time_color = "status-green"
+                        time_msg = "ON TIME"
+
+                    # DIVERT
                     is_divert = "DIVERT" in str(row['Comment']).upper()
                     divert_html = ""
                     if is_divert:
-                        msg_text = "⚠️ DIVERT INSTRUCTION"
-                        match = re.search(r"DIVERT TO[:\s]+([A-Z0-9]+)", str(row['Comment']), re.IGNORECASE)
-                        if match:
-                            target_bay = match.group(1).upper()
-                            next_flights = df[
-                                (df['Bay'].astype(str).str.upper() == target_bay) & 
-                                (df['Flight'] != row['Flight']) &
-                                (df['EffectiveTime'] >= row['EffectiveTime']) 
-                            ]
-                            if not next_flights.empty:
-                                target = next_flights.iloc[0]
-                                msg_text = f"⚠️ DIVERT BOWSER TO: {target['Flight']} / {target['Sector']} / {target['Bay']}"
-                            else:
-                                msg_text = f"⚠️ DIVERT BOWSER TO: BAY {target_bay} (No Flight Found)"
-                        divert_html = f'<div class="divert-msg">{msg_text}</div>'
+                        msg = str(row['Comment'])
+                        divert_html = f'<div class="divert-banner">⚠️ {msg}</div>'
+                        priority_class = "priority-critical"
 
-                    # CLASSES
-                    card_class = "bay-card"
-                    if is_divert: card_class += " card-divert"
-                    if is_urgent and not is_divert: card_class += " card-urgent"
-                    
-                    urgent_banner = ""
-                    time_class = ""
-                    if is_urgent:
-                        time_left = "NOW" if mins_to_dep < 1 else f"{int(mins_to_dep)} MIN"
-                        urgent_banner = f'<div class="urgent-banner">🔥 EXPEDITE: DEP IN {time_left}</div>'
-                        time_class = "time-urgent"
-
-                    # HTML GENERATION (Flattened to prevent rendering bugs)
-                    html = f"""
-                    <div class="{card_class}">
-                        <div class="card-header">
-                            <span class="bay-badge">BAY {row['Bay']}</span>
-                            <span class="bowser-pill">🚛 {row['Bowser']}</span>
+                    # CARD
+                    st.markdown(f"""
+                    <div class="job-card {priority_class}">
+                        {badge_html}
+                        <div class="card-top">
+                            <span class="bay-tag">BAY {row['Bay']}</span>
+                            <span class="bowser-tag">🚛 {row['Bowser']}</span>
                         </div>
-                        {urgent_banner}
                         {divert_html}
-                        <div class="card-body">
-                            <div><div class="label">FLIGHT</div><div class="flight-big">{row['Flight']}</div></div>
-                            <div style="text-align:right;"><div class="label">CALL SIGN</div><div class="val">{row['CallSign']}</div></div>
-                            <div class="stat-box">
-                                <div><div class="label" style="color:#1565c0">95th %</div><div class="stat-val">{row['Percentile']}</div></div>
-                                <div style="text-align:right;"><div class="label" style="color:#1565c0">DEPARTURE</div><div class="val {time_class}">{time_display}</div></div>
+                        <div class="card-main">
+                            <div>
+                                <div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div>
+                                <div class="flight-id">{row['Flight']}</div>
                             </div>
-                            <div><div class="label">SECTOR</div><div class="val">📍 {row['Sector']}</div></div>
-                            <div style="text-align:right;"><div class="label">CREW</div><div class="val">{row['Crew']}</div></div>
+                            <div style="text-align:right;">
+                                <div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div>
+                                <div class="dep-time">{row['Dep']}</div>
+                                <div class="time-sub {time_color}">{time_msg}</div>
+                            </div>
                         </div>
                     </div>
-                    """
-                    # REMOVE NEWLINES to prevent markdown breakage
-                    st.markdown(html.replace('\n', ''), unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
+                    
+                    # INPUT
+                    col_a, col_b = st.columns([3, 1])
+                    with col_a:
+                        val = st.text_input("Report", placeholder="Comment...", key=f"in_{row['Flight']}", label_visibility="collapsed")
+                    with col_b:
+                        if st.button("Send", key=f"btn_{row['Flight']}"):
+                            if val: send_feedback(row['Flight'], val)
+                    st.markdown("---")
 
-    with tab_crew:
-        crew_df = df[df['Crew'].str.len() > 1].copy()
-        if not crew_df.empty:
-            crew_summary = crew_df.groupby('Crew')['Flight'].apply(lambda x: ', '.join(x)).reset_index()
-            st.table(crew_summary)
-            
-    time.sleep(REFRESH_RATE)
-    st.rerun()
-else:
-    st.warning("Loading data...")
+# --- TAB 2: MASTER BOARD (FULL DATA) ---
+with tab_master:
+    if not df.empty:
+        # Re-ordering columns for the Master View
+        master_cols = [
+            'Flight', 'Dep', 'Sector', '95th %', 'Call Sign', 
+            'Bay', 'ETA', 'Crew', 'Bowser', 'Comment', 'Field Feedback'
+        ]
+        
+        # Ensure only columns that exist are selected (safety)
+        existing_cols = [c for c in master_cols if c in df.columns]
+        
+        st.dataframe(
+            df[existing_cols], 
+            hide_index=True, 
+            use_container_width=True, 
+            height=700
+        )
+
+time.sleep(REFRESH_RATE)
+st.rerun()
