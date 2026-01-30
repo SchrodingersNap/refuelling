@@ -7,7 +7,7 @@ import time
 
 # --- CONFIGURATION ---
 # Paste your New Google Script URL here
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxZ4c88cfqMzpm4nGUs5m4cEbp5QtGtNN9lQIIFVLFsMiDFJYb6MYhnN71oNaGUE9m4PQ/exec'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbynNb-Gf9To20i6BQltMNZbC7LM5Rd9K633b-kYAY7nVoBklVaAf6NSBvQVHJtYGJneAA/exec'
 REFRESH_RATE = 5  # Seconds
 
 # --- PAGE SETUP ---
