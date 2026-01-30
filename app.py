@@ -5,91 +5,34 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-# 1. YOUR LIVE GOOGLE SCRIPT URL
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbwG9hxV4BWT2sChCCfXfD6ujX11RzYIxIUZaf_aYJehvxzo-D88NuPjWE5rsebCSLD9Ug/exec'
-
-# 2. YOUR GITHUB RAW CSV URL (Replace this with your actual Raw Link)
-# Example: 'https://raw.githubusercontent.com/username/repo/main/flight_fuel.csv'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxjTi8QbPeGF7adRGvavfR_AYQeF-sHRnu_I3Vp_-UWUKy_TzkXh7Ku33jNL3juwv583g/exec'
 FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv' 
-
 REFRESH_RATE = 100
 
-# --- PAGE CONFIG ---
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
 
-# --- CUSTOM CSS ---
+# --- CSS ---
 st.markdown("""
 <style>
     .stApp { background-color: #f0f2f5; }
     .block-container { padding-top: 1rem; padding-bottom: 5rem; }
-    
-    /* JOB CARD DESIGN */
-    .job-card {
-        background: white; border-radius: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.08);
-        padding: 0; margin-bottom: 16px;
-        border-left: 8px solid #cfd8dc;
-        position: relative; overflow: hidden;
-    }
-    
-    /* PRIORITY INDICATORS */
+    .job-card { background: white; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); margin-bottom: 16px; border-left: 8px solid #cfd8dc; overflow: hidden; }
     .priority-critical { border-left-color: #d32f2f !important; }
     .priority-warning { border-left-color: #fbc02d !important; }
     .priority-safe { border-left-color: #388e3c !important; }
-    
-    .arrow-badge {
-        background: #d32f2f; color: white; width: 100%;
-        text-align: center; font-weight: 900; font-size: 14px;
-        padding: 6px; letter-spacing: 1px;
-        animation: pulse 1.5s infinite;
-    }
-    .warning-badge {
-        background: #fbc02d; color: #212121; width: 100%;
-        text-align: center; font-weight: 900; font-size: 14px;
-        padding: 6px; letter-spacing: 1px;
-    }
-
-    /* CARD LAYOUT */
-    .card-top {
-        background: #ffffff; padding: 12px 16px;
-        display: flex; justify-content: space-between; align-items: center;
-        border-bottom: 1px solid #f5f5f5;
-    }
-    .card-main {
-        padding: 16px; display: flex; justify-content: space-between; align-items: center;
-    }
-
-    /* TAGS */
-    .bay-tag { 
-        font-size: 20px; font-weight: 900; color: #263238; 
-        background: #eceff1; padding: 4px 10px; border-radius: 6px;
-    }
-    .bowser-tag { 
-        font-size: 16px; font-weight: 700; color: #1b5e20; 
-        background: #e8f5e9; padding: 4px 12px; border-radius: 20px; 
-        border: 1px solid #c8e6c9;
-    }
-
-    /* TEXT STYLES */
-    .flight-id { font-size: 28px; font-weight: 800; color: #212121; letter-spacing: -1px; }
-    .sector-lbl { font-size: 14px; font-weight: 700; color: #546e7a; margin-top: 4px; display: flex; align-items: center; gap: 5px;}
+    .arrow-badge { background: #d32f2f; color: white; width: 100%; text-align: center; font-weight: 900; padding: 6px; animation: pulse 1.5s infinite; }
+    .warning-badge { background: #fbc02d; color: black; width: 100%; text-align: center; font-weight: 900; padding: 6px; }
+    .card-top { padding: 12px 16px; display: flex; justify-content: space-between; border-bottom: 1px solid #eee; }
+    .card-main { padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .bay-tag { font-size: 20px; font-weight: 900; color: #263238; background: #eceff1; padding: 4px 10px; border-radius: 6px; }
+    .bowser-tag { font-size: 16px; font-weight: 700; color: #1b5e20; background: #e8f5e9; padding: 4px 12px; border-radius: 20px; border: 1px solid #c8e6c9; }
+    .flight-id { font-size: 28px; font-weight: 800; color: #212121; }
+    .sector-lbl { font-size: 14px; font-weight: 700; color: #546e7a; margin-top: 4px;}
     .dep-time { font-size: 22px; font-weight: 700; color: #424242; }
-    .time-sub { font-size: 11px; font-weight: bold; text-align: right; margin-top: -4px;}
-    
-    .status-red { color: #d32f2f; }
-    .status-orange { color: #f57f17; }
-    .status-green { color: #388e3c; }
-
-    /* DIVERT */
-    .divert-banner {
-        background: #fff3e0; color: #e65100; padding: 10px;
-        font-weight: bold; font-size: 14px; text-align: center;
-        border-bottom: 1px solid #ffe0b2; display: flex; align-items: center; justify-content: center; gap: 8px;
-    }
-
-    .stTextInput input { padding: 8px; font-size: 14px; }
-    .stButton button { width: 100%; border-radius: 4px; height: 42px; font-weight: bold;}
-    
+    .time-sub { font-size: 11px; font-weight: bold; text-align: right; }
+    .status-red { color: #d32f2f; } .status-orange { color: #f57f17; } .status-green { color: #388e3c; }
+    .divert-banner { background: #fff3e0; color: #e65100; padding: 10px; font-weight: bold; text-align: center; border-bottom: 1px solid #ffe0b2; }
+    .stTextInput input { padding: 8px; } .stButton button { width: 100%; height: 42px; font-weight: bold; }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
     header {visibility: hidden;} footer {visibility: hidden;}
 </style>
@@ -110,18 +53,15 @@ def parse_dep_time(time_str):
         return dep_time
     except: return None
 
-@st.cache_data(ttl=600) # Cache GitHub CSV for 10 mins (it changes rarely)
+@st.cache_data(ttl=600)
 def fetch_static_fuel_data():
     try:
-        # Load from GitHub
-        # If testing locally without internet, uncomment the next line and comment the read_csv line:
-        # return pd.DataFrame({'Flight_ID': ['6E 695'], 'Qty': ['8.5']}) 
         df_fuel = pd.read_csv(FUEL_DATA_URL)
-        # Ensure Flight_ID is string and stripped
         df_fuel['Flight_ID'] = df_fuel['Flight_ID'].astype(str).str.strip().str.upper()
+        # Create a helper column without spaces for matching (e.g. "6E 695" -> "6E695")
+        df_fuel['JoinKey'] = df_fuel['Flight_ID'].str.replace(" ", "") 
         return df_fuel
-    except:
-        return pd.DataFrame(columns=['Flight_ID', 'Qty'])
+    except: return pd.DataFrame(columns=['Flight_ID', 'Qty', 'JoinKey'])
 
 @st.cache_data(ttl=5)
 def fetch_live_data():
@@ -131,13 +71,10 @@ def fetch_live_data():
             data = response.json()
             rows = []
             list_data = data.get('flights', []) if isinstance(data, dict) else []
-            
             for item in list_data:
                 d = item['data']
-                while len(d) < 11: d.append("") 
+                while len(d) < 10: d.append("") # Ensure 10 cols
                 
-                # Live Data from Google (No 95% column here, we merge it later)
-                # Cols: 0=Flight, 1=Dep, 2=Sector, 3=CallSign, 4=Bay, 5=ETA, 6=Crew, 7=Bowser, 8=Comments, 9=Feedback
                 rows.append({
                     'Flight': str(d[0]).strip().upper(), 
                     'Dep': str(d[1]), 
@@ -151,8 +88,7 @@ def fetch_live_data():
                     'Field Feedback': str(d[9])
                 })
             return pd.DataFrame(rows)
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
     return pd.DataFrame()
 
 def send_feedback(flight_no, comment):
@@ -163,35 +99,30 @@ def send_feedback(flight_no, comment):
         st.rerun()
     except: st.error("Failed")
 
-# --- DATA MERGING ---
+# --- DATA MERGE ---
 df_live = fetch_live_data()
 df_fuel = fetch_static_fuel_data()
+now = datetime.now()
 
 if not df_live.empty:
-    # MERGE: Join Live Data with Static Fuel Data on Flight ID
-    # Left join ensures we keep all live flights even if they don't have fuel data
-    df_merged = pd.merge(df_live, df_fuel, left_on='Flight', right_on='Flight_ID', how='left')
+    # Create JoinKey on Live Data too (Remove spaces)
+    df_live['JoinKey'] = df_live['Flight'].str.replace(" ", "")
     
-    # Fill NaN Qty with "--"
+    # Merge using the JoinKey (Smart Match)
+    df_merged = pd.merge(df_live, df_fuel[['JoinKey', 'Qty']], on='JoinKey', how='left')
     df_merged['Qty'] = df_merged['Qty'].fillna("--")
 else:
     df_merged = pd.DataFrame()
 
-now = datetime.now()
-
-# --- APP TABS ---
+# --- TABS ---
 tab_run, tab_master = st.tabs(["🚀 ACTIVE JOBS", "📊 MASTER BOARD"])
 
-# --- TAB 1: MINIMALIST RUNNING BAYS ---
 with tab_run:
-    # Mobile Layout
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if not df_merged.empty:
             running = df_merged[df_merged['Bowser'].str.strip() != ""].copy()
-            
-            if running.empty:
-                st.info("No active jobs.")
+            if running.empty: st.info("No active jobs.")
             else:
                 running['DepObj'] = running['Dep'].apply(parse_dep_time)
                 running['MinsLeft'] = running['DepObj'].apply(lambda x: (x - now).total_seconds() / 60 if x else 9999)
@@ -199,65 +130,35 @@ with tab_run:
                 
                 for i, row in running.iterrows():
                     mins = row['MinsLeft']
-                    
-                    # Priority
-                    if mins < 20:
-                        cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
-                    elif mins < 30:
-                        cls, badge, col, msg = "priority-warning", '<div class="warning-badge">⚠️ PREPARE</div>', "status-orange", f"{int(mins)} MIN LEFT"
-                    else:
-                        cls, badge, col, msg = "priority-safe", "", "status-green", "ON TIME"
+                    if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
+                    elif mins < 30: cls, badge, col, msg = "priority-warning", '<div class="warning-badge">⚠️ PREPARE</div>', "status-orange", f"{int(mins)} MIN LEFT"
+                    else: cls, badge, col, msg = "priority-safe", "", "status-green", "ON TIME"
 
-                    # Divert
                     is_divert = "DIVERT" in str(row['Comment']).upper()
                     div_html = f'<div class="divert-banner">⚠️ {row["Comment"]}</div>' if is_divert else ""
                     if is_divert: cls = "priority-critical"
 
-                    # CARD (Flight, Bay, Sector, Dep, Divert - NO 95%, NO Crew)
+                    # MINIMALIST CARD (No 95%)
                     st.markdown(f"""
-                    <div class="job-card {cls}">
-                        {badge}
-                        <div class="card-top">
-                            <span class="bay-tag">BAY {row['Bay']}</span>
-                            <span class="bowser-tag">🚛 {row['Bowser']}</span>
-                        </div>
-                        {div_html}
-                        <div class="card-main">
-                            <div>
-                                <div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div>
-                                <div class="flight-id">{row['Flight']}</div>
-                                <div class="sector-lbl">📍 {row['Sector']}</div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div>
-                                <div class="dep-time">{row['Dep']}</div>
-                                <div class="time-sub {col}">{msg}</div>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="job-card {cls}">{badge}<div class="card-top"><span class="bay-tag">BAY {row['Bay']}</span><span class="bowser-tag">🚛 {row['Bowser']}</span></div>{div_html}
+                    <div class="card-main"><div><div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div><div class="flight-id">{row['Flight']}</div><div class="sector-lbl">📍 {row['Sector']}</div></div>
+                    <div style="text-align:right;"><div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div><div class="dep-time">{row['Dep']}</div><div class="time-sub {col}">{msg}</div></div></div></div>
                     """, unsafe_allow_html=True)
                     
-                    # Feedback Input
                     ca, cb = st.columns([3, 1])
-                    with ca: val = st.text_input("Report", placeholder="Issue...", key=f"in_{row['Flight']}", label_visibility="collapsed")
+                    with ca: val = st.text_input("Rpt", placeholder="...", key=f"in_{row['Flight']}", label_visibility="collapsed")
                     with cb: 
                         if st.button("Send", key=f"btn_{row['Flight']}"): 
                             if val: send_feedback(row['Flight'], val)
                     st.markdown("---")
 
-# --- TAB 2: MASTER BOARD (FULL DATA) ---
 with tab_master:
     if not df_merged.empty:
-        # Reorder columns to show Qty near Flight
-        cols_order = ['Flight', 'Qty', 'Dep', 'Sector', 'Bay', 'Bowser', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
-        
-        # Rename Qty to 95% for display
-        df_display = df_merged.rename(columns={'Qty': '95th %'})
-        
-        # Select valid columns
-        final_cols = [c for c in cols_order if c in df_display.columns or c == '95th %']
-        
-        st.dataframe(df_display[final_cols], hide_index=True, use_container_width=True, height=700)
+        # Rename Qty -> 95th % for display
+        df_disp = df_merged.rename(columns={'Qty': '95th %'})
+        # Explicit Column Order
+        cols = ['Flight', '95th %', 'Dep', 'Sector', 'Bay', 'Bowser', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
+        st.dataframe(df_disp[cols], hide_index=True, use_container_width=True, height=700)
 
 time.sleep(REFRESH_RATE)
 st.rerun()
