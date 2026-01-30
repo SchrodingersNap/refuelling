@@ -27,7 +27,7 @@ st.markdown("""
     /* Remove padding for cleaner look */
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
 
-    /* CARD STYLES (Ported from your HTML) */
+    /* CARD STYLES */
     .bay-card {
         background: white; border-radius: 12px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
@@ -123,16 +123,11 @@ def calculate_effective_time(row, now):
         return eta + timedelta(minutes=40), True
     
     if dep:
-        # Auto-delay logic: If dep is within 60 mins (or past), push it forward
         temp_time = dep
-        # Check if dep is "in the past" or "very soon" (within 60 mins)
-        # Using a loop to push it into the future
         diff_min = (temp_time - now).total_seconds() / 60
         is_calc = False
         
-        # If flight was supposed to leave 2 hours ago (diff < -100), assume it's tomorrow? 
-        # For this logic, we follow your loop request:
-        while diff_min <= 60 and diff_min > -600: # -600 (10 hours ago) safety break
+        while diff_min <= 60 and diff_min > -600:
             temp_time += timedelta(minutes=60)
             diff_min = (temp_time - now).total_seconds() / 60
             is_calc = True
@@ -141,22 +136,42 @@ def calculate_effective_time(row, now):
         
     return None, False
 
-@st.cache_data(ttl=5) # Cache data for 5 seconds
+@st.cache_data(ttl=5)
 def fetch_data():
     try:
         response = requests.get(SHEET_API_URL)
         if response.status_code == 200:
             data = response.json()
-            # Convert JSON list to DataFrame
+            
+            # --- FIX: Handle if data is List OR Dict ---
+            if isinstance(data, dict):
+                flight_list = data.get('flights', [])
+            elif isinstance(data, list):
+                flight_list = data
+            else:
+                flight_list = []
+            
             rows = []
-            for item in data.get('flights', []):
-                # Columns: 0=Flight, 1=Dep, 2=Sec, 3=95%, 4=Call, 5=Bay, 6=ETA, 7=Crew, 8=Bowser, 9=Comment
-                d = item['data']
+            for item in flight_list:
+                # Ensure we handle the structure correctly
+                if isinstance(item, dict) and 'data' in item:
+                    d = item['data']
+                else:
+                    # Fallback if item is just a raw list
+                    d = item
+
+                # Safety: Ensure d is a list and has enough columns
+                if not isinstance(d, list): continue
+                
+                # Pad with empty strings if missing columns
+                while len(d) < 10:
+                    d.append("")
+
                 rows.append({
                     'Flight': d[0], 'Dep': d[1], 'Sector': d[2], 'Percentile': d[3],
                     'CallSign': d[4], 'Bay': d[5], 'ETA': d[6], 'Crew': d[7],
-                    'Bowser': d[8], 'Comment': d[9] if len(d)>9 else "",
-                    'OriginalData': item # Keep full object if needed
+                    'Bowser': d[8], 'Comment': d[9],
+                    'OriginalData': item 
                 })
             return pd.DataFrame(rows)
     except Exception as e:
@@ -193,7 +208,6 @@ if not df.empty:
 
     # --- TAB 1: MASTER BOARD ---
     with tab_master:
-        # Clean up for display
         display_df = df[['Flight', 'Dep', 'Sector', 'Percentile', 'CallSign', 'Bay', 'ETA', 'Crew', 'Bowser', 'Comment']].copy()
         st.dataframe(
             display_df, 
@@ -202,20 +216,18 @@ if not df.empty:
             height=600
         )
 
-    # --- TAB 2: RUNNING BAYS (THE CREATIVE PART) ---
+    # --- TAB 2: RUNNING BAYS ---
     with tab_running:
-        # Filter: Only rows with Bowser assigned
         running_df = df[df['Bowser'].str.strip() != ""]
         
         if running_df.empty:
             st.info("🚛 No Active Bowsers. Assign a Bowser in Excel to see cards here.")
         else:
-            # Grid Layout for Cards
-            cols = st.columns(3) # 3 columns on desktop, collapses on mobile
+            cols = st.columns(3)
             
             for index, row in running_df.iterrows():
                 with cols[index % 3]:
-                    # --- LOGIC: Urgency (20 mins) ---
+                    # --- Urgency Logic ---
                     is_urgent = False
                     mins_to_dep = 999
                     if pd.notnull(row['EffectiveTime']):
@@ -225,25 +237,20 @@ if not df.empty:
                     
                     time_display = row['EffectiveTime'].strftime("%H:%M") if pd.notnull(row['EffectiveTime']) else row['Dep']
                     
-                    # --- LOGIC: Divert Smart Parser ---
+                    # --- Divert Smart Parser ---
                     is_divert = "DIVERT" in str(row['Comment']).upper()
                     divert_html = ""
                     
                     if is_divert:
                         msg_text = "⚠️ DIVERT INSTRUCTION"
-                        # Regex to find target bay "DIVERT TO 55L"
                         match = re.search(r"DIVERT TO[:\s]+([A-Z0-9]+)", str(row['Comment']), re.IGNORECASE)
                         if match:
                             target_bay = match.group(1).upper()
-                            # Search for NEXT flight at this bay (look at rows AFTER current index)
-                            # Since 'df' is sorted, we filter df where index > current_row_original_index
-                            # But wait, running_df index might not match df index.
-                            # We search the whole sorted 'df' for the *first* match that isn't THIS flight
-                            
+                            # Search for NEXT flight
                             next_flights = df[
                                 (df['Bay'].astype(str).str.upper() == target_bay) & 
                                 (df['Flight'] != row['Flight']) &
-                                (df['EffectiveTime'] >= row['EffectiveTime']) # Must be later or same time
+                                (df['EffectiveTime'] >= row['EffectiveTime']) 
                             ]
                             
                             if not next_flights.empty:
@@ -260,12 +267,11 @@ if not df.empty:
                     if is_urgent and not is_divert: card_class += " card-urgent"
                     
                     urgent_banner = ""
+                    time_class = ""
                     if is_urgent:
                         time_left = "NOW" if mins_to_dep < 1 else f"{int(mins_to_dep)} MIN"
                         urgent_banner = f'<div class="urgent-banner">🔥 EXPEDITE: DEP IN {time_left}</div>'
                         time_class = "time-urgent"
-                    else:
-                        time_class = ""
 
                     html = f"""
                     <div class="{card_class}">
@@ -311,17 +317,14 @@ if not df.empty:
 
     # --- TAB 3: CREW SUMMARY ---
     with tab_crew:
-        # Simple Pivot
-        crew_df = df[df['Crew'].str.len() > 1].copy() # Filter empty crew
+        crew_df = df[df['Crew'].str.len() > 1].copy()
         if not crew_df.empty:
             crew_summary = crew_df.groupby('Crew')['Flight'].apply(lambda x: ', '.join(x)).reset_index()
             st.table(crew_summary)
         else:
             st.info("No Crew Assigned")
 
-    # --- AUTO REFRESH LOGIC ---
-    # Streamlit Cloud can handle this with a sleep loop or st_autorefresh
-    # Simple standardized way:
+    # --- AUTO REFRESH LOOP ---
     time.sleep(REFRESH_RATE)
     st.rerun()
 
