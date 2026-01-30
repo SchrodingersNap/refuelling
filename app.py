@@ -7,7 +7,7 @@ import re
 
 # --- CONFIGURATION ---
 # 🔴 PASTE YOUR NEW GOOGLE SCRIPT URL HERE
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbx_OAeF0FpzprIac4PsO-JqibWwd4bym5jYxOP36ixrbQ2URYUunUTv8xdrFmAnRv_O2g/exec'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxGgfT38d9UKHDHXSowSP-J2brhSDCiFn-rWNmSCaVYoB5mcoCkRauNT5eowUI_goSYMg/exec'
 FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
 REFRESH_RATE = 100 
 
