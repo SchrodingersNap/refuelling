@@ -8,7 +8,7 @@ import re
 # --- CONFIGURATION ---
 SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxjTi8QbPeGF7adRGvavfR_AYQeF-sHRnu_I3Vp_-UWUKy_TzkXh7Ku33jNL3juwv583g/exec'
 FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
-REFRESH_RATE = 100  # Updated to 100 seconds as requested
+REFRESH_RATE = 100 
 
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
 
@@ -54,23 +54,17 @@ def parse_dep_time(time_str):
         return dep_time
     except: return None
 
-# Helper to normalize flight numbers (removes spaces AND dashes)
 def normalize_flight_id(val):
     if not isinstance(val, str): return str(val)
-    # Remove all spaces and dashes, convert to UPPER
     return val.replace(" ", "").replace("-", "").strip().upper()
 
 @st.cache_data(ttl=600)
 def fetch_static_fuel_data():
     try:
         df_fuel = pd.read_csv(FUEL_DATA_URL)
-        
-        # Standardize Columns
         df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
         if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
         if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
-
-        # Create JoinKey with SUPER CLEANING (No Space, No Dash)
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         return df_fuel
     except Exception as e: 
@@ -115,22 +109,8 @@ def send_feedback(flight_no, comment):
 df_live = fetch_live_data()
 df_fuel = fetch_static_fuel_data()
 
-# --- DEBUG EXPANDER ---
-with st.expander("🕵️ Debug: Check Matching Logic"):
-    if not df_live.empty:
-        st.write("Live Data Sample (First 3):")
-        df_live['DebugKey'] = df_live['Flight'].apply(normalize_flight_id)
-        st.write(df_live[['Flight', 'DebugKey']].head(3))
-    
-    if not df_fuel.empty:
-        st.write("Fuel Data Sample (First 3):")
-        st.write(df_fuel[['Flight_ID', 'JoinKey', 'Qty']].head(3))
-
 if not df_live.empty:
-    # APPLY THE SAME CLEANING TO LIVE DATA
     df_live['JoinKey'] = df_live['Flight'].apply(normalize_flight_id)
-    
-    # Merge
     df_merged = pd.merge(df_live, df_fuel[['JoinKey', 'Qty']], on='JoinKey', how='left')
     df_merged['Qty'] = df_merged['Qty'].fillna("--")
 else:
@@ -143,9 +123,7 @@ with tab_run:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if not df_merged.empty:
-            # Filter for active bowsers
             running = df_merged[df_merged['Bowser'].str.strip() != ""].copy()
-            
             if running.empty: 
                 st.info("No active jobs.")
             else:
@@ -153,7 +131,8 @@ with tab_run:
                 running['MinsLeft'] = running['DepObj'].apply(lambda x: (x - now).total_seconds() / 60 if x else 9999)
                 running = running.sort_values(by='MinsLeft')
                 
-                for i, row in running.iterrows():
+                # FIX: Use 'enumerate' to get a unique 'idx' for every row
+                for idx, (index, row) in enumerate(running.iterrows()):
                     mins = row['MinsLeft']
                     if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
                     elif mins < 30: cls, badge, col, msg = "priority-warning", '<div class="warning-badge">⚠️ PREPARE</div>', "status-orange", f"{int(mins)} MIN LEFT"
@@ -163,7 +142,6 @@ with tab_run:
                     div_html = f'<div class="divert-banner">⚠️ {row["Comment"]}</div>' if is_divert else ""
                     if is_divert: cls = "priority-critical"
 
-                    # MINIMALIST CARD (No 95% here)
                     st.markdown(f"""
                     <div class="job-card {cls}">{badge}<div class="card-top"><span class="bay-tag">BAY {row['Bay']}</span><span class="bowser-tag">🚛 {row['Bowser']}</span></div>{div_html}
                     <div class="card-main"><div><div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div><div class="flight-id">{row['Flight']}</div><div class="sector-lbl">📍 {row['Sector']}</div></div>
@@ -171,9 +149,12 @@ with tab_run:
                     """, unsafe_allow_html=True)
                     
                     ca, cb = st.columns([3, 1])
-                    with ca: val = st.text_input("Rpt", placeholder="...", key=f"in_{row['Flight']}", label_visibility="collapsed")
+                    with ca: 
+                        # UNIQUE KEY FIX: Added _{idx} to the key
+                        val = st.text_input("Rpt", placeholder="...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
                     with cb: 
-                        if st.button("Send", key=f"btn_{row['Flight']}"): 
+                        # UNIQUE KEY FIX: Added _{idx} to the key
+                        if st.button("Send", key=f"btn_{row['Flight']}_{idx}"): 
                             if val: send_feedback(row['Flight'], val)
                     st.markdown("---")
 
