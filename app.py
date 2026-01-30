@@ -6,8 +6,7 @@ import re
 import time
 
 # --- CONFIGURATION ---
-# Paste your New Google Script URL here
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbynNb-Gf9To20i6BQltMNZbC7LM5Rd9K633b-kYAY7nVoBklVaAf6NSBvQVHJtYGJneAA/exec'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxZ4c88cfqMzpm4nGUs5m4cEbp5QtGtNN9lQIIFVLFsMiDFJYb6MYhnN71oNaGUE9m4PQ/exec'
 REFRESH_RATE = 5  # Seconds
 
 # --- PAGE SETUP ---
@@ -22,15 +21,18 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp { background-color: #f4f6f8; }
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     
+    /* CARD CONTAINER */
     .bay-card {
         background: white; border-radius: 12px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-left: 5px solid #263238;
+        border-left: 6px solid #263238;
         margin-bottom: 15px; font-family: sans-serif;
         overflow: hidden;
     }
+    
+    /* HEADER */
     .card-header {
         padding: 10px 15px; display: flex; justify-content: space-between; align-items: center;
         border-bottom: 1px solid #f0f0f0; background: white;
@@ -44,35 +46,42 @@ st.markdown("""
         border-radius: 20px; font-weight: 800; font-size: 14px; 
         border: 1px solid #c8e6c9; display: flex; align-items: center; gap: 5px;
     }
+
+    /* ALERTS */
+    .urgent-banner {
+        background: #d32f2f; color: white; font-weight: 900; text-align: center;
+        padding: 8px; font-size: 13px; animation: blink 1s infinite alternate;
+        width: 100%; display: block;
+    }
+    .divert-msg {
+        background: #fff3e0; color: #e65100; padding: 10px;
+        font-weight: bold; font-size: 13px; text-align: center; 
+        border-bottom: 1px solid #ffe0b2; width: 100%; display: block;
+    }
+
+    /* BODY */
     .card-body { padding: 15px; display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; }
     .label { font-size: 10px; color: #90a4ae; font-weight: 700; text-transform: uppercase; }
     .val { font-size: 15px; font-weight: 600; color: #37474f; }
     .flight-big { font-size: 24px; font-weight: 800; color: #263238; letter-spacing: -0.5px; line-height: 1; }
     
+    /* WIDGETS */
     .stat-box {
         grid-column: 1 / -1; background: #e3f2fd; border: 1px solid #bbdefb;
         padding: 8px 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
     }
     .stat-val { font-size: 18px; color: #1565c0; font-weight: 900; }
-    
+    .time-urgent { color: #d32f2f; font-weight: 900; font-size: 18px; }
+
+    /* CARD VARIANTS */
     .card-urgent { 
         border-left-color: #d32f2f !important;
         box-shadow: 0 0 15px rgba(211, 47, 47, 0.3);
         animation: pulse-red 2s infinite;
     }
-    .urgent-banner {
-        background: #d32f2f; color: white; font-weight: 900; text-align: center;
-        padding: 6px; font-size: 12px; animation: blink 1s infinite alternate;
-    }
-    .time-urgent { color: #d32f2f; font-weight: 900; font-size: 18px; }
-
     .card-divert { border-left-color: #ff8f00 !important; }
     .card-divert .card-header {
         background: repeating-linear-gradient(45deg, #ffb300, #ffb300 10px, #ffca28 10px, #ffca28 20px);
-    }
-    .divert-msg {
-        grid-column: 1 / -1; background: #fff3e0; color: #e65100; padding: 10px;
-        font-weight: bold; font-size: 13px; text-align: center; border-bottom: 1px solid #ffe0b2;
     }
 
     @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); } }
@@ -144,18 +153,11 @@ def fetch_data():
                 while len(d) < 10:
                     d.append("")
 
-                # CORRECTLY INDENTED BLOCK
                 rows.append({
-                    'Flight': d[0], 
-                    'Dep': d[1], 
-                    'Sector': d[2], 
+                    'Flight': d[0], 'Dep': d[1], 'Sector': d[2], 
                     'Percentile': d[3] if str(d[3]).strip() != "" else "--",
-                    'CallSign': d[4], 
-                    'Bay': d[5], 
-                    'ETA': d[6], 
-                    'Crew': d[7],
-                    'Bowser': d[8], 
-                    'Comment': d[9],
+                    'CallSign': d[4], 'Bay': d[5], 'ETA': d[6], 
+                    'Crew': d[7], 'Bowser': d[8], 'Comment': d[9],
                     'OriginalData': item 
                 })
             return pd.DataFrame(rows)
@@ -163,7 +165,7 @@ def fetch_data():
         st.error(f"Connection Error: {e}")
     return pd.DataFrame()
 
-# --- MAIN APP LOGIC ---
+# --- MAIN APP ---
 df = fetch_data()
 
 if not df.empty:
@@ -178,7 +180,7 @@ if not df.empty:
         st.title("✈️ Flight Operations")
     with col2:
         st.caption(f"Last Sync: {now.strftime('%H:%M:%S')}")
-        if st.button("🔄 Refresh Now"):
+        if st.button("🔄 Refresh"):
             st.rerun()
 
     tab_master, tab_running, tab_crew = st.tabs(["📊 Master Board", "🚀 Running Bays", "👥 Crew"])
@@ -195,6 +197,7 @@ if not df.empty:
             cols = st.columns(3)
             for index, row in running_df.iterrows():
                 with cols[index % 3]:
+                    # URGENCY
                     is_urgent = False
                     mins_to_dep = 999
                     if pd.notnull(row['EffectiveTime']):
@@ -204,9 +207,9 @@ if not df.empty:
                     
                     time_display = row['EffectiveTime'].strftime("%H:%M") if pd.notnull(row['EffectiveTime']) else row['Dep']
                     
+                    # DIVERT LOGIC
                     is_divert = "DIVERT" in str(row['Comment']).upper()
                     divert_html = ""
-                    
                     if is_divert:
                         msg_text = "⚠️ DIVERT INSTRUCTION"
                         match = re.search(r"DIVERT TO[:\s]+([A-Z0-9]+)", str(row['Comment']), re.IGNORECASE)
@@ -224,6 +227,7 @@ if not df.empty:
                                 msg_text = f"⚠️ DIVERT BOWSER TO: BAY {target_bay} (No Flight Found)"
                         divert_html = f'<div class="divert-msg">{msg_text}</div>'
 
+                    # CLASSES
                     card_class = "bay-card"
                     if is_divert: card_class += " card-divert"
                     if is_urgent and not is_divert: card_class += " card-urgent"
@@ -235,6 +239,7 @@ if not df.empty:
                         urgent_banner = f'<div class="urgent-banner">🔥 EXPEDITE: DEP IN {time_left}</div>'
                         time_class = "time-urgent"
 
+                    # HTML GENERATION (Flattened to prevent rendering bugs)
                     html = f"""
                     <div class="{card_class}">
                         <div class="card-header">
@@ -244,49 +249,27 @@ if not df.empty:
                         {urgent_banner}
                         {divert_html}
                         <div class="card-body">
-                            <div>
-                                <div class="label">FLIGHT</div>
-                                <div class="flight-big">{row['Flight']}</div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div class="label">CALL SIGN</div>
-                                <div class="val">{row['CallSign']}</div>
-                            </div>
-                            
+                            <div><div class="label">FLIGHT</div><div class="flight-big">{row['Flight']}</div></div>
+                            <div style="text-align:right;"><div class="label">CALL SIGN</div><div class="val">{row['CallSign']}</div></div>
                             <div class="stat-box">
-                                <div>
-                                    <div class="label" style="color:#1565c0">95th %</div>
-                                    <div class="stat-val">{row['Percentile']}</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div class="label" style="color:#1565c0">DEPARTURE</div>
-                                    <div class="val {time_class}">{time_display}</div>
-                                </div>
+                                <div><div class="label" style="color:#1565c0">95th %</div><div class="stat-val">{row['Percentile']}</div></div>
+                                <div style="text-align:right;"><div class="label" style="color:#1565c0">DEPARTURE</div><div class="val {time_class}">{time_display}</div></div>
                             </div>
-
-                            <div>
-                                <div class="label">SECTOR</div>
-                                <div class="val">📍 {row['Sector']}</div>
-                            </div>
-                             <div style="text-align:right;">
-                                <div class="label">CREW</div>
-                                <div class="val">{row['Crew']}</div>
-                            </div>
+                            <div><div class="label">SECTOR</div><div class="val">📍 {row['Sector']}</div></div>
+                            <div style="text-align:right;"><div class="label">CREW</div><div class="val">{row['Crew']}</div></div>
                         </div>
                     </div>
                     """
-                    st.markdown(html, unsafe_allow_html=True)
+                    # REMOVE NEWLINES to prevent markdown breakage
+                    st.markdown(html.replace('\n', ''), unsafe_allow_html=True)
 
     with tab_crew:
         crew_df = df[df['Crew'].str.len() > 1].copy()
         if not crew_df.empty:
             crew_summary = crew_df.groupby('Crew')['Flight'].apply(lambda x: ', '.join(x)).reset_index()
             st.table(crew_summary)
-        else:
-            st.info("No Crew Assigned")
             
     time.sleep(REFRESH_RATE)
     st.rerun()
-
 else:
-    st.warning("Loading data... (If this persists, check your Internet or Sheet URL)")
+    st.warning("Loading data...")
