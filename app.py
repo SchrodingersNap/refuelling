@@ -55,33 +55,37 @@ def parse_dep_time(time_str):
     except: return None
 
 def normalize_flight_id(val):
-    if not isinstance(val, str): return str(val)
-    return val.replace(" ", "").replace("-", "").strip().upper()
+    if not isinstance(val, str): val = str(val)
+    val = val.strip().upper()
+    
+    # 🛠️ FIX: Detect "6.00E+212" and convert back to "6E212"
+    # Regex looks for: Digit + (optional .00) + E + (optional +) + Digits
+    match = re.search(r'^(\d)\.?0*E\+?(\d+)$', val)
+    if match:
+        # Reconstruct as: Digit + "E" + Exponent (e.g. 6 + E + 212)
+        val = f"{match.group(1)}E{match.group(2)}"
+        
+    return val.replace(" ", "").replace("-", "")
 
 @st.cache_data(ttl=600)
 def fetch_and_calculate_fuel_stats():
-    """
-    Fetches raw daily data from GitHub, groups by Flight ID, 
-    and calculates the 95th Percentile Qty.
-    """
     try:
-        df_fuel = pd.read_csv(FUEL_DATA_URL)
+        # Force all data to string initially to catch "6E212" before pandas messes it up
+        df_fuel = pd.read_csv(FUEL_DATA_URL, dtype=str)
         
-        # 1. Standardize Column Names
+        # Standardize Columns
         df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
         if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
         if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
         
-        # 2. Normalize Flight IDs (Remove spaces/dashes)
+        # Normalize IDs (Fix scientific notation errors here)
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         
-        # 3. Ensure Qty is Numeric (Force bad text to NaN)
+        # Ensure Qty is Numeric
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
         
-        # 4. 🔴 CALCULATION: Group by Flight and get 95th Percentile
+        # Calculation: Group by Flight and get 95th Percentile
         df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.95).reset_index()
-        
-        # 5. Round to 2 decimal places for clean display
         df_agg['Qty'] = df_agg['Qty'].round(2)
         
         return df_agg
@@ -125,14 +129,10 @@ def send_feedback(flight_no, comment):
 
 # --- MAIN ---
 df_live = fetch_live_data()
-df_stats = fetch_and_calculate_fuel_stats() # Now fetches AGGREGATED stats
+df_stats = fetch_and_calculate_fuel_stats()
 
 if not df_live.empty:
-    # Prepare keys
     df_live['JoinKey'] = df_live['Flight'].apply(normalize_flight_id)
-    
-    # Merge Live Data with Calculated Stats
-    # Left join ensures we keep all live flights, even if no stats exist
     df_merged = pd.merge(df_live, df_stats[['JoinKey', 'Qty']], on='JoinKey', how='left')
     df_merged['Qty'] = df_merged['Qty'].fillna("--")
 else:
@@ -153,7 +153,6 @@ with tab_run:
                 running['MinsLeft'] = running['DepObj'].apply(lambda x: (x - now).total_seconds() / 60 if x else 9999)
                 running = running.sort_values(by='MinsLeft')
                 
-                # Use enumerate for Unique Keys
                 for idx, (index, row) in enumerate(running.iterrows()):
                     mins = row['MinsLeft']
                     if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
