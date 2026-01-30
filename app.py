@@ -59,16 +59,34 @@ def normalize_flight_id(val):
     return val.replace(" ", "").replace("-", "").strip().upper()
 
 @st.cache_data(ttl=600)
-def fetch_static_fuel_data():
+def fetch_and_calculate_fuel_stats():
+    """
+    Fetches raw daily data from GitHub, groups by Flight ID, 
+    and calculates the 95th Percentile Qty.
+    """
     try:
         df_fuel = pd.read_csv(FUEL_DATA_URL)
+        
+        # 1. Standardize Column Names
         df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
         if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
         if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
+        
+        # 2. Normalize Flight IDs (Remove spaces/dashes)
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
-        return df_fuel
+        
+        # 3. Ensure Qty is Numeric (Force bad text to NaN)
+        df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
+        
+        # 4. 🔴 CALCULATION: Group by Flight and get 95th Percentile
+        df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.95).reset_index()
+        
+        # 5. Round to 2 decimal places for clean display
+        df_agg['Qty'] = df_agg['Qty'].round(2)
+        
+        return df_agg
     except Exception as e: 
-        return pd.DataFrame(columns=['Flight_ID', 'Qty', 'JoinKey'])
+        return pd.DataFrame(columns=['JoinKey', 'Qty'])
 
 @st.cache_data(ttl=5)
 def fetch_live_data():
@@ -107,11 +125,15 @@ def send_feedback(flight_no, comment):
 
 # --- MAIN ---
 df_live = fetch_live_data()
-df_fuel = fetch_static_fuel_data()
+df_stats = fetch_and_calculate_fuel_stats() # Now fetches AGGREGATED stats
 
 if not df_live.empty:
+    # Prepare keys
     df_live['JoinKey'] = df_live['Flight'].apply(normalize_flight_id)
-    df_merged = pd.merge(df_live, df_fuel[['JoinKey', 'Qty']], on='JoinKey', how='left')
+    
+    # Merge Live Data with Calculated Stats
+    # Left join ensures we keep all live flights, even if no stats exist
+    df_merged = pd.merge(df_live, df_stats[['JoinKey', 'Qty']], on='JoinKey', how='left')
     df_merged['Qty'] = df_merged['Qty'].fillna("--")
 else:
     df_merged = pd.DataFrame()
@@ -131,7 +153,7 @@ with tab_run:
                 running['MinsLeft'] = running['DepObj'].apply(lambda x: (x - now).total_seconds() / 60 if x else 9999)
                 running = running.sort_values(by='MinsLeft')
                 
-                # FIX: Use 'enumerate' to get a unique 'idx' for every row
+                # Use enumerate for Unique Keys
                 for idx, (index, row) in enumerate(running.iterrows()):
                     mins = row['MinsLeft']
                     if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
@@ -149,11 +171,8 @@ with tab_run:
                     """, unsafe_allow_html=True)
                     
                     ca, cb = st.columns([3, 1])
-                    with ca: 
-                        # UNIQUE KEY FIX: Added _{idx} to the key
-                        val = st.text_input("Rpt", placeholder="...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
+                    with ca: val = st.text_input("Rpt", placeholder="...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
                     with cb: 
-                        # UNIQUE KEY FIX: Added _{idx} to the key
                         if st.button("Send", key=f"btn_{row['Flight']}_{idx}"): 
                             if val: send_feedback(row['Flight'], val)
                     st.markdown("---")
