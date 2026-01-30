@@ -6,10 +6,10 @@ from datetime import datetime
 import re
 
 # --- CONFIGURATION ---
-# 🔴 PASTE NEW GOOGLE SCRIPT URL HERE
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzsjUcBq4twKUI7Zd5xrbxhYmxITrWgFXehQ6scYCtdxW1QTOj46XEXzNVZLLK_asGjgA/exec'
+# 🔴 PASTE YOUR NEW GOOGLE SCRIPT URL HERE
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbx_OAeF0FpzprIac4PsO-JqibWwd4bym5jYxOP36ixrbQ2URYUunUTv8xdrFmAnRv_O2g/exec'
 FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
-REFRESH_RATE = 100 
+REFRESH_RATE = 5 
 
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
 
@@ -34,11 +34,7 @@ st.markdown("""
     .time-sub { font-size: 11px; font-weight: bold; text-align: right; }
     .status-red { color: #d32f2f; } .status-orange { color: #f57f17; } .status-green { color: #388e3c; }
     .divert-banner { background: #fff3e0; color: #e65100; padding: 10px; font-weight: bold; text-align: center; border-bottom: 1px solid #ffe0b2; }
-    .stTextInput input { padding: 8px; } 
-    /* Button Styles */
-    .stButton button { width: 100%; height: 42px; font-weight: bold; }
-    button[data-testid="baseButton-secondary"] { border-color: #4caf50; color: #4caf50; }
-    button[data-testid="baseButton-secondary"]:hover { background-color: #e8f5e9; border-color: #4caf50; color: #4caf50; }
+    .stTextInput input { padding: 8px; } .stButton button { width: 100%; height: 42px; font-weight: bold; }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
     header {visibility: hidden;} footer {visibility: hidden;}
 </style>
@@ -90,7 +86,7 @@ def fetch_live_data():
             list_data = data.get('flights', []) if isinstance(data, dict) else []
             for item in list_data:
                 d = item['data']
-                while len(d) < 10: d.append("")
+                while len(d) < 11: d.append("") # Fetch 11 columns now
                 rows.append({
                     'Flight': str(d[0]).strip().upper(), 
                     'Dep': str(d[1]), 
@@ -101,7 +97,8 @@ def fetch_live_data():
                     'Crew': str(d[6]), 
                     'Bowser': str(d[7]), 
                     'Comment': str(d[8]), 
-                    'Field Feedback': str(d[9])
+                    'Field Feedback': str(d[9]),
+                    'Status': str(d[10]) # New Column K
                 })
             return pd.DataFrame(rows)
     except: return pd.DataFrame()
@@ -137,7 +134,12 @@ with tab_run:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if not df_merged.empty:
-            running = df_merged[df_merged['Bowser'].str.strip() != ""].copy()
+            # FILTER: Bowser must be present AND Status must NOT be 'DONE'
+            running = df_merged[
+                (df_merged['Bowser'].str.strip() != "") & 
+                (df_merged['Status'].str.strip().str.upper() != "DONE")
+            ].copy()
+            
             if running.empty: 
                 st.info("No active jobs.")
             else:
@@ -161,14 +163,12 @@ with tab_run:
                     <div style="text-align:right;"><div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div><div class="dep-time">{row['Dep']}</div><div class="time-sub {col}">{msg}</div></div></div></div>
                     """, unsafe_allow_html=True)
                     
-                    # ACTION ROW
                     ca, cb, cc = st.columns([3, 1.2, 1.2])
                     with ca: val = st.text_input("Rpt", placeholder="Note...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
                     with cb: 
                         if st.button("Send", key=f"btn_send_{row['Flight']}_{idx}"): 
                             if val: send_update(row['Flight'], "comment", val)
                     with cc:
-                        # CLOSE BUTTON
                         if st.button("✅ Done", key=f"btn_close_{row['Flight']}_{idx}"):
                              send_update(row['Flight'], "close")
                     
@@ -177,7 +177,8 @@ with tab_run:
 with tab_master:
     if not df_merged.empty:
         df_disp = df_merged.rename(columns={'Qty': '95th %'})
-        cols = ['Flight', '95th %', 'Dep', 'Sector', 'Bay', 'Bowser', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
+        # Show Status in Master Board so you can see completed jobs
+        cols = ['Flight', '95th %', 'Dep', 'Sector', 'Bay', 'Bowser', 'Status', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
         st.dataframe(df_disp[cols], hide_index=True, use_container_width=True, height=700)
 
 time.sleep(REFRESH_RATE)
