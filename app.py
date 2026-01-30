@@ -6,7 +6,8 @@ from datetime import datetime
 import re
 
 # --- CONFIGURATION ---
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxjTi8QbPeGF7adRGvavfR_AYQeF-sHRnu_I3Vp_-UWUKy_TzkXh7Ku33jNL3juwv583g/exec'
+# 🔴 PASTE NEW GOOGLE SCRIPT URL HERE
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzsjUcBq4twKUI7Zd5xrbxhYmxITrWgFXehQ6scYCtdxW1QTOj46XEXzNVZLLK_asGjgA/exec'
 FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
 REFRESH_RATE = 100 
 
@@ -33,7 +34,11 @@ st.markdown("""
     .time-sub { font-size: 11px; font-weight: bold; text-align: right; }
     .status-red { color: #d32f2f; } .status-orange { color: #f57f17; } .status-green { color: #388e3c; }
     .divert-banner { background: #fff3e0; color: #e65100; padding: 10px; font-weight: bold; text-align: center; border-bottom: 1px solid #ffe0b2; }
-    .stTextInput input { padding: 8px; } .stButton button { width: 100%; height: 42px; font-weight: bold; }
+    .stTextInput input { padding: 8px; } 
+    /* Button Styles */
+    .stButton button { width: 100%; height: 42px; font-weight: bold; }
+    button[data-testid="baseButton-secondary"] { border-color: #4caf50; color: #4caf50; }
+    button[data-testid="baseButton-secondary"]:hover { background-color: #e8f5e9; border-color: #4caf50; color: #4caf50; }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
     header {visibility: hidden;} footer {visibility: hidden;}
 </style>
@@ -57,40 +62,23 @@ def parse_dep_time(time_str):
 def normalize_flight_id(val):
     if not isinstance(val, str): val = str(val)
     val = val.strip().upper()
-    
-    # 🛠️ FIX: Detect "6.00E+212" and convert back to "6E212"
-    # Regex looks for: Digit + (optional .00) + E + (optional +) + Digits
     match = re.search(r'^(\d)\.?0*E\+?(\d+)$', val)
-    if match:
-        # Reconstruct as: Digit + "E" + Exponent (e.g. 6 + E + 212)
-        val = f"{match.group(1)}E{match.group(2)}"
-        
+    if match: val = f"{match.group(1)}E{match.group(2)}"
     return val.replace(" ", "").replace("-", "")
 
 @st.cache_data(ttl=600)
 def fetch_and_calculate_fuel_stats():
     try:
-        # Force all data to string initially to catch "6E212" before pandas messes it up
         df_fuel = pd.read_csv(FUEL_DATA_URL, dtype=str)
-        
-        # Standardize Columns
         df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
         if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
         if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
-        
-        # Normalize IDs (Fix scientific notation errors here)
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
-        
-        # Ensure Qty is Numeric
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
-        
-        # Calculation: Group by Flight and get 95th Percentile
         df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.95).reset_index()
         df_agg['Qty'] = df_agg['Qty'].round(2)
-        
         return df_agg
-    except Exception as e: 
-        return pd.DataFrame(columns=['JoinKey', 'Qty'])
+    except: return pd.DataFrame(columns=['JoinKey', 'Qty'])
 
 @st.cache_data(ttl=5)
 def fetch_live_data():
@@ -119,10 +107,14 @@ def fetch_live_data():
     except: return pd.DataFrame()
     return pd.DataFrame()
 
-def send_feedback(flight_no, comment):
+def send_update(flight_no, action, comment=""):
     try:
-        requests.post(SHEET_API_URL, json={"flight": flight_no, "comment": comment})
-        st.toast(f"✅ Sent for {flight_no}")
+        payload = {"flight": flight_no, "action": action, "comment": comment}
+        requests.post(SHEET_API_URL, json=payload)
+        
+        if action == 'close': st.toast(f"✅ Closed {flight_no}")
+        else: st.toast(f"📨 Note added to {flight_no}")
+        
         time.sleep(1)
         st.rerun()
     except: st.error("Failed")
@@ -169,11 +161,17 @@ with tab_run:
                     <div style="text-align:right;"><div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div><div class="dep-time">{row['Dep']}</div><div class="time-sub {col}">{msg}</div></div></div></div>
                     """, unsafe_allow_html=True)
                     
-                    ca, cb = st.columns([3, 1])
-                    with ca: val = st.text_input("Rpt", placeholder="...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
+                    # ACTION ROW
+                    ca, cb, cc = st.columns([3, 1.2, 1.2])
+                    with ca: val = st.text_input("Rpt", placeholder="Note...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
                     with cb: 
-                        if st.button("Send", key=f"btn_{row['Flight']}_{idx}"): 
-                            if val: send_feedback(row['Flight'], val)
+                        if st.button("Send", key=f"btn_send_{row['Flight']}_{idx}"): 
+                            if val: send_update(row['Flight'], "comment", val)
+                    with cc:
+                        # CLOSE BUTTON
+                        if st.button("✅ Done", key=f"btn_close_{row['Flight']}_{idx}"):
+                             send_update(row['Flight'], "close")
+                    
                     st.markdown("---")
 
 with tab_master:
