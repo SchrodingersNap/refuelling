@@ -3,11 +3,12 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime
+import re
 
 # --- CONFIGURATION ---
 SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxjTi8QbPeGF7adRGvavfR_AYQeF-sHRnu_I3Vp_-UWUKy_TzkXh7Ku33jNL3juwv583g/exec'
-FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv' 
-REFRESH_RATE = 100
+FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
+REFRESH_RATE = 100  # Updated to 100 seconds as requested
 
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
 
@@ -53,15 +54,27 @@ def parse_dep_time(time_str):
         return dep_time
     except: return None
 
+# Helper to normalize flight numbers (removes spaces AND dashes)
+def normalize_flight_id(val):
+    if not isinstance(val, str): return str(val)
+    # Remove all spaces and dashes, convert to UPPER
+    return val.replace(" ", "").replace("-", "").strip().upper()
+
 @st.cache_data(ttl=600)
 def fetch_static_fuel_data():
     try:
         df_fuel = pd.read_csv(FUEL_DATA_URL)
-        df_fuel['Flight_ID'] = df_fuel['Flight_ID'].astype(str).str.strip().str.upper()
-        # Create a helper column without spaces for matching (e.g. "6E 695" -> "6E695")
-        df_fuel['JoinKey'] = df_fuel['Flight_ID'].str.replace(" ", "") 
+        
+        # Standardize Columns
+        df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
+        if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
+        if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
+
+        # Create JoinKey with SUPER CLEANING (No Space, No Dash)
+        df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         return df_fuel
-    except: return pd.DataFrame(columns=['Flight_ID', 'Qty', 'JoinKey'])
+    except Exception as e: 
+        return pd.DataFrame(columns=['Flight_ID', 'Qty', 'JoinKey'])
 
 @st.cache_data(ttl=5)
 def fetch_live_data():
@@ -73,8 +86,7 @@ def fetch_live_data():
             list_data = data.get('flights', []) if isinstance(data, dict) else []
             for item in list_data:
                 d = item['data']
-                while len(d) < 10: d.append("") # Ensure 10 cols
-                
+                while len(d) < 10: d.append("")
                 rows.append({
                     'Flight': str(d[0]).strip().upper(), 
                     'Dep': str(d[1]), 
@@ -99,30 +111,43 @@ def send_feedback(flight_no, comment):
         st.rerun()
     except: st.error("Failed")
 
-# --- DATA MERGE ---
+# --- MAIN ---
 df_live = fetch_live_data()
 df_fuel = fetch_static_fuel_data()
-now = datetime.now()
+
+# --- DEBUG EXPANDER ---
+with st.expander("🕵️ Debug: Check Matching Logic"):
+    if not df_live.empty:
+        st.write("Live Data Sample (First 3):")
+        df_live['DebugKey'] = df_live['Flight'].apply(normalize_flight_id)
+        st.write(df_live[['Flight', 'DebugKey']].head(3))
+    
+    if not df_fuel.empty:
+        st.write("Fuel Data Sample (First 3):")
+        st.write(df_fuel[['Flight_ID', 'JoinKey', 'Qty']].head(3))
 
 if not df_live.empty:
-    # Create JoinKey on Live Data too (Remove spaces)
-    df_live['JoinKey'] = df_live['Flight'].str.replace(" ", "")
+    # APPLY THE SAME CLEANING TO LIVE DATA
+    df_live['JoinKey'] = df_live['Flight'].apply(normalize_flight_id)
     
-    # Merge using the JoinKey (Smart Match)
+    # Merge
     df_merged = pd.merge(df_live, df_fuel[['JoinKey', 'Qty']], on='JoinKey', how='left')
     df_merged['Qty'] = df_merged['Qty'].fillna("--")
 else:
     df_merged = pd.DataFrame()
 
-# --- TABS ---
+now = datetime.now()
 tab_run, tab_master = st.tabs(["🚀 ACTIVE JOBS", "📊 MASTER BOARD"])
 
 with tab_run:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if not df_merged.empty:
+            # Filter for active bowsers
             running = df_merged[df_merged['Bowser'].str.strip() != ""].copy()
-            if running.empty: st.info("No active jobs.")
+            
+            if running.empty: 
+                st.info("No active jobs.")
             else:
                 running['DepObj'] = running['Dep'].apply(parse_dep_time)
                 running['MinsLeft'] = running['DepObj'].apply(lambda x: (x - now).total_seconds() / 60 if x else 9999)
@@ -138,7 +163,7 @@ with tab_run:
                     div_html = f'<div class="divert-banner">⚠️ {row["Comment"]}</div>' if is_divert else ""
                     if is_divert: cls = "priority-critical"
 
-                    # MINIMALIST CARD (No 95%)
+                    # MINIMALIST CARD (No 95% here)
                     st.markdown(f"""
                     <div class="job-card {cls}">{badge}<div class="card-top"><span class="bay-tag">BAY {row['Bay']}</span><span class="bowser-tag">🚛 {row['Bowser']}</span></div>{div_html}
                     <div class="card-main"><div><div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div><div class="flight-id">{row['Flight']}</div><div class="sector-lbl">📍 {row['Sector']}</div></div>
@@ -154,9 +179,7 @@ with tab_run:
 
 with tab_master:
     if not df_merged.empty:
-        # Rename Qty -> 95th % for display
         df_disp = df_merged.rename(columns={'Qty': '95th %'})
-        # Explicit Column Order
         cols = ['Flight', '95th %', 'Dep', 'Sector', 'Bay', 'Bowser', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
         st.dataframe(df_disp[cols], hide_index=True, use_container_width=True, height=700)
 
