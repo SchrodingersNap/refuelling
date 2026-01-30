@@ -6,13 +6,13 @@ from datetime import datetime
 
 # --- CONFIGURATION ---
 # 1. YOUR LIVE GOOGLE SCRIPT URL
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxZ4c88cfqMzpm4nGUs5m4cEbp5QtGtNN9lQIIFVLFsMiDFJYb6MYhnN71oNaGUE9m4PQ/exec'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbwG9hxV4BWT2sChCCfXfD6ujX11RzYIxIUZaf_aYJehvxzo-D88NuPjWE5rsebCSLD9Ug/exec'
 
 # 2. YOUR GITHUB RAW CSV URL (Replace this with your actual Raw Link)
 # Example: 'https://raw.githubusercontent.com/username/repo/main/flight_fuel.csv'
-FUEL_DATA_URL = 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/flight_fuel.csv' 
+FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv' 
 
-REFRESH_RATE = 10 
+REFRESH_RATE = 100
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
