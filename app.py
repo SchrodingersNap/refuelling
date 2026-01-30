@@ -6,10 +6,9 @@ from datetime import datetime
 import re
 
 # --- CONFIGURATION ---
-# 🔴 PASTE YOUR NEW GOOGLE SCRIPT URL HERE
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxGgfT38d9UKHDHXSowSP-J2brhSDCiFn-rWNmSCaVYoB5mcoCkRauNT5eowUI_goSYMg/exec'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxtTLSGaiV0G0s-o0IgVjq_16yogZfqfswzkKrr47SUQOtWKccDMklPZ-3QJrnxP4LigQ/exec'
 FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
-REFRESH_RATE = 100 
+REFRESH_RATE = 60 
 
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
 
@@ -86,7 +85,7 @@ def fetch_live_data():
             list_data = data.get('flights', []) if isinstance(data, dict) else []
             for item in list_data:
                 d = item['data']
-                while len(d) < 11: d.append("") # Fetch 11 columns now
+                while len(d) < 11: d.append("") 
                 rows.append({
                     'Flight': str(d[0]).strip().upper(), 
                     'Dep': str(d[1]), 
@@ -98,7 +97,7 @@ def fetch_live_data():
                     'Bowser': str(d[7]), 
                     'Comment': str(d[8]), 
                     'Field Feedback': str(d[9]),
-                    'Status': str(d[10]) # New Column K
+                    'Status': str(d[10]) 
                 })
             return pd.DataFrame(rows)
     except: return pd.DataFrame()
@@ -134,7 +133,6 @@ with tab_run:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if not df_merged.empty:
-            # FILTER: Bowser must be present AND Status must NOT be 'DONE'
             running = df_merged[
                 (df_merged['Bowser'].str.strip() != "") & 
                 (df_merged['Status'].str.strip().str.upper() != "DONE")
@@ -149,13 +147,21 @@ with tab_run:
                 
                 for idx, (index, row) in enumerate(running.iterrows()):
                     mins = row['MinsLeft']
+                    
+                    # 1. Base Priority based on Time
                     if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
                     elif mins < 30: cls, badge, col, msg = "priority-warning", '<div class="warning-badge">⚠️ PREPARE</div>', "status-orange", f"{int(mins)} MIN LEFT"
                     else: cls, badge, col, msg = "priority-safe", "", "status-green", "ON TIME"
 
-                    is_divert = "DIVERT" in str(row['Comment']).upper()
-                    div_html = f'<div class="divert-banner">⚠️ {row["Comment"]}</div>' if is_divert else ""
-                    if is_divert: cls = "priority-critical"
+                    # 2. COMMENT LOGIC (SHOW ANY TEXT)
+                    # Get the comment and strip empty spaces
+                    comment_text = str(row['Comment']).strip()
+                    
+                    div_html = ""
+                    if comment_text:
+                        # If ANY comment exists, show banner AND make card critical (Red)
+                        div_html = f'<div class="divert-banner">⚠️ {comment_text}</div>'
+                        cls = "priority-critical"
 
                     st.markdown(f"""
                     <div class="job-card {cls}">{badge}<div class="card-top"><span class="bay-tag">BAY {row['Bay']}</span><span class="bowser-tag">🚛 {row['Bowser']}</span></div>{div_html}
@@ -177,7 +183,6 @@ with tab_run:
 with tab_master:
     if not df_merged.empty:
         df_disp = df_merged.rename(columns={'Qty': '95th %'})
-        # Show Status in Master Board so you can see completed jobs
         cols = ['Flight', '95th %', 'Dep', 'Sector', 'Bay', 'Bowser', 'Status', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
         st.dataframe(df_disp[cols], hide_index=True, use_container_width=True, height=700)
 
