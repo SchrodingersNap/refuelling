@@ -167,10 +167,18 @@ def fetch_data():
                 while len(d) < 10:
                     d.append("")
 
-                rows.append({
-                    'Flight': d[0], 'Dep': d[1], 'Sector': d[2], 'Percentile': d[3],
-                    'CallSign': d[4], 'Bay': d[5], 'ETA': d[6], 'Crew': d[7],
-                    'Bowser': d[8], 'Comment': d[9],
+         rows.append({
+                    'Flight': d[0], 
+                    'Dep': d[1], 
+                    'Sector': d[2], 
+                    # FIX: Force a default value if empty
+                    'Percentile': d[3] if str(d[3]).strip() != "" else "--",
+                    'CallSign': d[4], 
+                    'Bay': d[5], 
+                    'ETA': d[6], 
+                    'Crew': d[7],
+                    'Bowser': d[8], 
+                    'Comment': d[9],
                     'OriginalData': item 
                 })
             return pd.DataFrame(rows)
