@@ -6,7 +6,7 @@ import re
 import time
 
 # --- CONFIGURATION ---
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxZ4c88cfqMzpm4nGUs5m4cEbp5QtGtNN9lQIIFVLFsMiDFJYb6MYhnN71oNaGUE9m4PQ/exec'
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycby3eZ_n63UM0RvzvtarLQ8d1lL85gtZ050TFvX_8RYlt1lTMJKYQEA-dF8SvfQRce4j4A/exec'
 REFRESH_RATE = 5  # Seconds
 
 # --- PAGE SETUP ---
