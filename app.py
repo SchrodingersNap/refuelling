@@ -4,11 +4,16 @@ import requests
 import time
 from datetime import datetime
 import re
+import os
 
 # --- CONFIGURATION ---
-SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxtTLSGaiV0G0s-o0IgVjq_16yogZfqfswzkKrr47SUQOtWKccDMklPZ-3QJrnxP4LigQ/exec'
-FUEL_DATA_URL = 'https://raw.githubusercontent.com/SchrodingersNap/refuelling/refs/heads/main/flight_fuel.csv'
-REFRESH_RATE = 60 
+# 1. LIVE DATA (Google Sheet API)
+SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbBOdm442zsjhvkiV6wuX-ZdSWtxaDtxrIRenROtaoYoBAz8ApbnNj916zIpRrnYWe/exec'
+
+# 2. STATIC DATA (Local File)
+FUEL_FILE = 'flight_fuel.csv'
+
+REFRESH_RATE = 100 
 
 st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
 
@@ -28,7 +33,13 @@ st.markdown("""
     .bay-tag { font-size: 20px; font-weight: 900; color: #263238; background: #eceff1; padding: 4px 10px; border-radius: 6px; }
     .bowser-tag { font-size: 16px; font-weight: 700; color: #1b5e20; background: #e8f5e9; padding: 4px 12px; border-radius: 20px; border: 1px solid #c8e6c9; }
     .flight-id { font-size: 28px; font-weight: 800; color: #212121; }
-    .sector-lbl { font-size: 14px; font-weight: 700; color: #546e7a; margin-top: 4px;}
+    
+    /* Updated Sector Label to include Call Sign cleanly */
+    .sector-lbl { 
+        font-size: 13px; font-weight: 600; color: #546e7a; 
+        margin-top: 4px; display: flex; align-items: center; gap: 6px;
+    }
+    
     .dep-time { font-size: 22px; font-weight: 700; color: #424242; }
     .time-sub { font-size: 11px; font-weight: bold; text-align: right; }
     .status-red { color: #d32f2f; } .status-orange { color: #f57f17; } .status-green { color: #388e3c; }
@@ -63,17 +74,25 @@ def normalize_flight_id(val):
 
 @st.cache_data(ttl=600)
 def fetch_and_calculate_fuel_stats():
+    """Reads local CSV file and calculates 95% Qty"""
+    if not os.path.exists(FUEL_FILE):
+        return pd.DataFrame(columns=['JoinKey', 'Qty'])
+        
     try:
-        df_fuel = pd.read_csv(FUEL_DATA_URL, dtype=str)
+        df_fuel = pd.read_csv(FUEL_FILE, dtype=str)
         df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
         if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
         if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
+        
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
+        
         df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.95).reset_index()
         df_agg['Qty'] = df_agg['Qty'].round(2)
+        
         return df_agg
-    except: return pd.DataFrame(columns=['JoinKey', 'Qty'])
+    except: 
+        return pd.DataFrame(columns=['JoinKey', 'Qty'])
 
 @st.cache_data(ttl=5)
 def fetch_live_data():
@@ -110,7 +129,6 @@ def send_update(flight_no, action, comment=""):
         
         if action == 'close': st.toast(f"✅ Closed {flight_no}")
         else: st.toast(f"📨 Note added to {flight_no}")
-        
         time.sleep(1)
         st.rerun()
     except: st.error("Failed")
@@ -148,25 +166,36 @@ with tab_run:
                 for idx, (index, row) in enumerate(running.iterrows()):
                     mins = row['MinsLeft']
                     
-                    # 1. Base Priority based on Time
                     if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
                     elif mins < 30: cls, badge, col, msg = "priority-warning", '<div class="warning-badge">⚠️ PREPARE</div>', "status-orange", f"{int(mins)} MIN LEFT"
                     else: cls, badge, col, msg = "priority-safe", "", "status-green", "ON TIME"
 
-                    # 2. COMMENT LOGIC (SHOW ANY TEXT)
-                    # Get the comment and strip empty spaces
                     comment_text = str(row['Comment']).strip()
-                    
                     div_html = ""
                     if comment_text:
-                        # If ANY comment exists, show banner AND make card critical (Red)
                         div_html = f'<div class="divert-banner">⚠️ {comment_text}</div>'
                         cls = "priority-critical"
 
+                    # --- UPDATED CARD HTML ---
+                    # Added Call Sign next to Sector with a radio icon
                     st.markdown(f"""
                     <div class="job-card {cls}">{badge}<div class="card-top"><span class="bay-tag">BAY {row['Bay']}</span><span class="bowser-tag">🚛 {row['Bowser']}</span></div>{div_html}
-                    <div class="card-main"><div><div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div><div class="flight-id">{row['Flight']}</div><div class="sector-lbl">📍 {row['Sector']}</div></div>
-                    <div style="text-align:right;"><div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div><div class="dep-time">{row['Dep']}</div><div class="time-sub {col}">{msg}</div></div></div></div>
+                    <div class="card-main">
+                        <div>
+                            <div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div>
+                            <div class="flight-id">{row['Flight']}</div>
+                            <div class="sector-lbl">
+                                📍 {row['Sector']} 
+                                <span style="color:#cfd8dc; margin:0 6px;">|</span> 
+                                📻 {row['Call Sign']}
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div>
+                            <div class="dep-time">{row['Dep']}</div>
+                            <div class="time-sub {col}">{msg}</div>
+                        </div>
+                    </div></div>
                     """, unsafe_allow_html=True)
                     
                     ca, cb, cc = st.columns([3, 1.2, 1.2])
