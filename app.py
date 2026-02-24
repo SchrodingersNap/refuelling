@@ -149,6 +149,6 @@ if not df_live.empty:
 else:
     st.warning("Waiting for data from Google Sheets...")
 
-# Auto-refresh loop
-time.sleep(REFRESH_RATE)
-st.rerun()
+# --- SAFE REFRESH ---
+if st.button("🔄 Refresh Data"):
+    st.rerun()
