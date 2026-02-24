@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-from datetime import datetime
 import re
 import os
 
@@ -15,57 +14,21 @@ FUEL_FILE = 'flight_fuel.csv'
 
 REFRESH_RATE = 100 
 
-st.set_page_config(page_title="Refuel Ops", page_icon="⛽", layout="wide") 
+st.set_page_config(page_title="Refuel Ops Dashboard", page_icon="⛽", layout="wide") 
 
-# --- CSS ---
+# --- CSS FOR CLEAN LAYOUT ---
 st.markdown("""
 <style>
-    .stApp { background-color: #f0f2f5; }
-    .block-container { padding-top: 1rem; padding-bottom: 5rem; }
-    .job-card { background: white; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); margin-bottom: 16px; border-left: 8px solid #cfd8dc; overflow: hidden; }
-    .priority-critical { border-left-color: #d32f2f !important; }
-    .priority-warning { border-left-color: #fbc02d !important; }
-    .priority-safe { border-left-color: #388e3c !important; }
-    .arrow-badge { background: #d32f2f; color: white; width: 100%; text-align: center; font-weight: 900; padding: 6px; animation: pulse 1.5s infinite; }
-    .warning-badge { background: #fbc02d; color: black; width: 100%; text-align: center; font-weight: 900; padding: 6px; }
-    .card-top { padding: 12px 16px; display: flex; justify-content: space-between; border-bottom: 1px solid #eee; }
-    .card-main { padding: 16px; display: flex; justify-content: space-between; align-items: center; }
-    .bay-tag { font-size: 20px; font-weight: 900; color: #263238; background: #eceff1; padding: 4px 10px; border-radius: 6px; }
-    .bowser-tag { font-size: 16px; font-weight: 700; color: #1b5e20; background: #e8f5e9; padding: 4px 12px; border-radius: 20px; border: 1px solid #c8e6c9; }
-    .flight-id { font-size: 28px; font-weight: 800; color: #212121; }
-    
-    /* Updated Sector Label to include Call Sign cleanly */
-    .sector-lbl { 
-        font-size: 13px; font-weight: 600; color: #546e7a; 
-        margin-top: 4px; display: flex; align-items: center; gap: 6px;
-    }
-    
-    .dep-time { font-size: 22px; font-weight: 700; color: #424242; }
-    .time-sub { font-size: 11px; font-weight: bold; text-align: right; }
-    .status-red { color: #d32f2f; } .status-orange { color: #f57f17; } .status-green { color: #388e3c; }
-    .divert-banner { background: #fff3e0; color: #e65100; padding: 10px; font-weight: bold; text-align: center; border-bottom: 1px solid #ffe0b2; }
-    .stTextInput input { padding: 8px; } .stButton button { width: 100%; height: 42px; font-weight: bold; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
-    header {visibility: hidden;} footer {visibility: hidden;}
+    .stApp { background-color: #f8f9fa; }
+    header {visibility: hidden;} 
+    footer {visibility: hidden;}
+    .block-container { padding-top: 2rem; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- FUNCTIONS ---
-def parse_dep_time(time_str):
-    if not time_str: return None
-    s = str(time_str).strip()
-    now = datetime.now()
-    try:
-        if len(s) == 3: s = "0" + s
-        if len(s) == 4 and s.isdigit(): h, m = int(s[:2]), int(s[2:])
-        elif ':' in s: parts = s.split(':'); h, m = int(parts[0]), int(parts[1])
-        else: return None
-        dep_time = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if (dep_time - now).total_seconds() < -43200: dep_time = dep_time.replace(day=now.day + 1)
-        return dep_time
-    except: return None
-
 def normalize_flight_id(val):
+    """Cleans up the flight ID for accurate merging."""
     if not isinstance(val, str): val = str(val)
     val = val.strip().upper()
     match = re.search(r'^(\d)\.?0*E\+?(\d+)$', val)
@@ -74,37 +37,45 @@ def normalize_flight_id(val):
 
 @st.cache_data(ttl=600)
 def fetch_and_calculate_fuel_stats():
-    """Reads local CSV file and calculates 95% Qty"""
+    """Reads local CSV and calculates the Recommended Load (90th Percentile)"""
     if not os.path.exists(FUEL_FILE):
         return pd.DataFrame(columns=['JoinKey', 'Qty'])
         
     try:
         df_fuel = pd.read_csv(FUEL_FILE, dtype=str)
         df_fuel.columns = df_fuel.columns.str.strip().str.replace(" ", "_")
+        
+        # Standardize column names just in case
         if 'Flight_ID' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[0]: 'Flight_ID'}, inplace=True)
         if 'Qty' not in df_fuel.columns: df_fuel.rename(columns={df_fuel.columns[1]: 'Qty'}, inplace=True)
         
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
         
-        df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.95).reset_index()
+        # Calculate Recommended Load (90th Percentile)
+        # This reduces excess fuel weight (higher efficiency) while maintaining safety.
+        df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.90).reset_index()
         df_agg['Qty'] = df_agg['Qty'].round(2)
         
         return df_agg
-    except: 
+    except Exception as e: 
+        st.error(f"Error processing fuel file: {e}")
         return pd.DataFrame(columns=['JoinKey', 'Qty'])
 
 @st.cache_data(ttl=5)
 def fetch_live_data():
+    """Fetches live data from the Google Sheets API"""
     try:
         response = requests.get(SHEET_API_URL)
         if response.status_code == 200:
             data = response.json()
             rows = []
             list_data = data.get('flights', []) if isinstance(data, dict) else []
+            
             for item in list_data:
                 d = item['data']
                 while len(d) < 11: d.append("") 
+                
                 rows.append({
                     'Flight': str(d[0]).strip().upper(), 
                     'Dep': str(d[1]), 
@@ -115,105 +86,69 @@ def fetch_live_data():
                     'Crew': str(d[6]), 
                     'Bowser': str(d[7]), 
                     'Comment': str(d[8]), 
-                    'Field Feedback': str(d[9]),
+                    'FieldFeedback': str(d[9]),
                     'Status': str(d[10]) 
                 })
             return pd.DataFrame(rows)
-    except: return pd.DataFrame()
+    except Exception as e:
+        pass
     return pd.DataFrame()
 
-def send_update(flight_no, action, comment=""):
-    try:
-        payload = {"flight": flight_no, "action": action, "comment": comment}
-        requests.post(SHEET_API_URL, json=payload)
-        
-        if action == 'close': st.toast(f"✅ Closed {flight_no}")
-        else: st.toast(f"📨 Note added to {flight_no}")
-        time.sleep(1)
-        st.rerun()
-    except: st.error("Failed")
+# --- MAIN APPLICATION ---
+st.title("⛽ Refuel Operations Dashboard")
 
-# --- MAIN ---
+# 1. Fetch Data
 df_live = fetch_live_data()
 df_stats = fetch_and_calculate_fuel_stats()
 
 if not df_live.empty:
+    # 2. Merge Live Data with Recommended Load
     df_live['JoinKey'] = df_live['Flight'].apply(normalize_flight_id)
     df_merged = pd.merge(df_live, df_stats[['JoinKey', 'Qty']], on='JoinKey', how='left')
-    df_merged['Qty'] = df_merged['Qty'].fillna("--")
+    df_merged.rename(columns={'Qty': 'Recommended Load'}, inplace=True)
+    df_merged['Recommended Load'] = df_merged['Recommended Load'].fillna("--")
+    
+    # 3. Filter empty rows (where Flight is blank) to keep the table clean
+    df_merged = df_merged[df_merged['Flight'] != ""]
+
+    # 4. Separate "Done" flights from "Active" flights
+    # We check if the 'FieldFeedback' column contains the word 'done' (case-insensitive)
+    is_done = df_merged['FieldFeedback'].str.strip().str.lower() == 'done'
+    
+    df_refuelled = df_merged[is_done].copy()
+    df_active = df_merged[~is_done].copy()
+
+    # Columns we want to display to the user
+    display_cols = ['Flight', 'Recommended Load', 'Dep', 'Sector', 'Bay', 'Bowser', 'Call Sign', 'ETA', 'Crew', 'Comment', 'FieldFeedback']
+
+    # --- UI PRESENTATION ---
+    tab_active, tab_refuelled = st.tabs(["✈️ ACTIVE FLIGHTS", "✅ REFUELLED"])
+
+    with tab_active:
+        if not df_active.empty:
+            st.dataframe(
+                df_active[display_cols],
+                hide_index=True,
+                use_container_width=True,
+                height=600
+            )
+        else:
+            st.info("No active flights at the moment.")
+
+    with tab_refuelled:
+        if not df_refuelled.empty:
+            st.dataframe(
+                df_refuelled[display_cols],
+                hide_index=True,
+                use_container_width=True,
+                height=600
+            )
+        else:
+            st.info("No flights have been marked as 'done' yet.")
+
 else:
-    df_merged = pd.DataFrame()
+    st.warning("Waiting for data from Google Sheets...")
 
-now = datetime.now()
-tab_run, tab_master = st.tabs(["🚀 ACTIVE JOBS", "📊 MASTER BOARD"])
-
-with tab_run:
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        if not df_merged.empty:
-            running = df_merged[
-                (df_merged['Bowser'].str.strip() != "") & 
-                (df_merged['Status'].str.strip().str.upper() != "DONE")
-            ].copy()
-            
-            if running.empty: 
-                st.info("No active jobs.")
-            else:
-                running['DepObj'] = running['Dep'].apply(parse_dep_time)
-                running['MinsLeft'] = running['DepObj'].apply(lambda x: (x - now).total_seconds() / 60 if x else 9999)
-                running = running.sort_values(by='MinsLeft')
-                
-                for idx, (index, row) in enumerate(running.iterrows()):
-                    mins = row['MinsLeft']
-                    
-                    if mins < 20: cls, badge, col, msg = "priority-critical", '<div class="arrow-badge">⬆️ PRIORITY</div>', "status-red", f"DEP IN {int(mins)} MIN"
-                    elif mins < 30: cls, badge, col, msg = "priority-warning", '<div class="warning-badge">⚠️ PREPARE</div>', "status-orange", f"{int(mins)} MIN LEFT"
-                    else: cls, badge, col, msg = "priority-safe", "", "status-green", "ON TIME"
-
-                    comment_text = str(row['Comment']).strip()
-                    div_html = ""
-                    if comment_text:
-                        div_html = f'<div class="divert-banner">⚠️ {comment_text}</div>'
-                        cls = "priority-critical"
-
-                    # --- UPDATED CARD HTML ---
-                    # Added Call Sign next to Sector with a radio icon
-                    st.markdown(f"""
-                    <div class="job-card {cls}">{badge}<div class="card-top"><span class="bay-tag">BAY {row['Bay']}</span><span class="bowser-tag">🚛 {row['Bowser']}</span></div>{div_html}
-                    <div class="card-main">
-                        <div>
-                            <div style="font-size:10px; color:#999; font-weight:bold;">FLIGHT</div>
-                            <div class="flight-id">{row['Flight']}</div>
-                            <div class="sector-lbl">
-                                📍 {row['Sector']} 
-                                <span style="color:#cfd8dc; margin:0 6px;">|</span> 
-                                📻 {row['Call Sign']}
-                            </div>
-                        </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:10px; color:#999; font-weight:bold;">DEPARTURE</div>
-                            <div class="dep-time">{row['Dep']}</div>
-                            <div class="time-sub {col}">{msg}</div>
-                        </div>
-                    </div></div>
-                    """, unsafe_allow_html=True)
-                    
-                    ca, cb, cc = st.columns([3, 1.2, 1.2])
-                    with ca: val = st.text_input("Rpt", placeholder="Note...", key=f"in_{row['Flight']}_{idx}", label_visibility="collapsed")
-                    with cb: 
-                        if st.button("Send", key=f"btn_send_{row['Flight']}_{idx}"): 
-                            if val: send_update(row['Flight'], "comment", val)
-                    with cc:
-                        if st.button("✅ Done", key=f"btn_close_{row['Flight']}_{idx}"):
-                             send_update(row['Flight'], "close")
-                    
-                    st.markdown("---")
-
-with tab_master:
-    if not df_merged.empty:
-        df_disp = df_merged.rename(columns={'Qty': '95th %'})
-        cols = ['Flight', '95th %', 'Dep', 'Sector', 'Bay', 'Bowser', 'Status', 'Call Sign', 'ETA', 'Crew', 'Comment', 'Field Feedback']
-        st.dataframe(df_disp[cols], hide_index=True, use_container_width=True, height=700)
-
+# Auto-refresh loop
 time.sleep(REFRESH_RATE)
 st.rerun()
