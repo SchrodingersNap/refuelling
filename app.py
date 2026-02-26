@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import re
 import os
+from streamlit_autorefresh import st_autorefresh  # NEW: Safe auto-refresh library
 
 # --- CONFIGURATION ---
 # 1. LIVE DATA (Google Sheet API)
@@ -13,6 +14,10 @@ FUEL_FILE = 'flight_fuel.csv'
 
 # Set layout to wide to use the full screen
 st.set_page_config(page_title="Refuel Ops Dashboard", page_icon="⛽", layout="wide") 
+
+# --- SAFE AUTO-REFRESH ---
+# Refreshes the app every 5 minutes (5 * 60 * 1000 = 300,000 milliseconds)
+st_autorefresh(interval=300000, limit=None, key="auto_refresh_timer")
 
 # --- CSS FOR CLEAN FULL-SCREEN LAYOUT ---
 st.markdown("""
@@ -40,7 +45,7 @@ def normalize_flight_id(val):
     if match: val = f"{match.group(1)}E{match.group(2)}"
     return val.replace(" ", "").replace("-", "")
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300) # Updated cache to match the 5-minute refresh
 def fetch_and_calculate_fuel_stats():
     """Reads local CSV and calculates the Recommended Load (90th Percentile)"""
     if not os.path.exists(FUEL_FILE):
@@ -99,7 +104,6 @@ def fetch_live_data():
     return pd.DataFrame()
 
 # --- MAIN APPLICATION ---
-# (Title removed as requested)
 
 # 1. Fetch Data
 df_live = fetch_live_data()
@@ -128,7 +132,7 @@ if not df_live.empty:
     df_refuelled = df_merged[is_done].copy()
     df_active = df_merged[~is_done].copy()
 
-    # 5. Exact column order and visibility (ETA and FieldFeedback are hidden)
+    # 5. Exact column order and visibility
     display_cols = ['Flight', 'Load', 'Dep', 'Des', 'Sign', 'Bay', 'Crew', 'Bowser', 'Comment']
 
     # --- UI PRESENTATION ---
@@ -140,7 +144,7 @@ if not df_live.empty:
                 df_active[display_cols],
                 hide_index=True,
                 use_container_width=True,
-                height=700 # Increased height for full screen feel
+                height=700 
             )
         else:
             st.info("No active flights at the moment.")
@@ -159,7 +163,7 @@ if not df_live.empty:
 else:
     st.warning("Waiting for data from Google Sheets...")
 
-# --- SAFE REFRESH ---
-st.markdown("---") # Adds a subtle line before the button
-if st.button("🔄 Refresh Data"):
+# --- MANUAL REFRESH BUTTON (Optional backup) ---
+st.markdown("---") 
+if st.button("🔄 Force Refresh Now"):
     st.rerun()
