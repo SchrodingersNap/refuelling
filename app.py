@@ -95,7 +95,7 @@ def fetch_live_data():
     return pd.DataFrame()
 
 # --- MAIN APPLICATION ---
-st.title("⛽ Refuel Operations Dashboard")
+st.title("")
 
 # 1. Fetch Data
 df_live = fetch_live_data()
