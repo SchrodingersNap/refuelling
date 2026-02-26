@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-import time
 import re
 import os
 
@@ -12,17 +11,23 @@ SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbBOdm442zsjhvkiV6wuX-
 # 2. STATIC DATA (Local File)
 FUEL_FILE = 'flight_fuel.csv'
 
-REFRESH_RATE = 100 
-
+# Set layout to wide to use the full screen
 st.set_page_config(page_title="Refuel Ops Dashboard", page_icon="⛽", layout="wide") 
 
-# --- CSS FOR CLEAN LAYOUT ---
+# --- CSS FOR CLEAN FULL-SCREEN LAYOUT ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
     header {visibility: hidden;} 
     footer {visibility: hidden;}
-    .block-container { padding-top: 2rem; }
+    /* Pushes the content to the very edges of the screen */
+    .block-container { 
+        padding-top: 0rem; 
+        padding-bottom: 0rem; 
+        padding-left: 1rem; 
+        padding-right: 1rem;
+        max-width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,8 +57,7 @@ def fetch_and_calculate_fuel_stats():
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
         
-        # Calculate Recommended Load (90th Percentile)
-        # This reduces excess fuel weight (higher efficiency) while maintaining safety.
+        # Calculate Load (90th Percentile)
         df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.90).reset_index()
         df_agg['Qty'] = df_agg['Qty'].round(2)
         
@@ -95,7 +99,7 @@ def fetch_live_data():
     return pd.DataFrame()
 
 # --- MAIN APPLICATION ---
-st.title("")
+# (Title removed as requested)
 
 # 1. Fetch Data
 df_live = fetch_live_data()
@@ -105,21 +109,27 @@ if not df_live.empty:
     # 2. Merge Live Data with Recommended Load
     df_live['JoinKey'] = df_live['Flight'].apply(normalize_flight_id)
     df_merged = pd.merge(df_live, df_stats[['JoinKey', 'Qty']], on='JoinKey', how='left')
-    df_merged.rename(columns={'Qty': 'Recommended Load'}, inplace=True)
-    df_merged['Recommended Load'] = df_merged['Recommended Load'].fillna("--")
     
-    # 3. Filter empty rows (where Flight is blank) to keep the table clean
+    # 3. Rename columns to match your exact layout requests
+    df_merged.rename(columns={
+        'Qty': 'Load', 
+        'Sector': 'Des', 
+        'Call Sign': 'Sign'
+    }, inplace=True)
+    
+    df_merged['Load'] = df_merged['Load'].fillna("--")
+    
+    # Filter empty rows (where Flight is blank)
     df_merged = df_merged[df_merged['Flight'] != ""]
 
-    # 4. Separate "Done" flights from "Active" flights
-    # We check if the 'FieldFeedback' column contains the word 'done' (case-insensitive)
+    # 4. Separate "Done" flights from "Active" flights using FieldFeedback
     is_done = df_merged['FieldFeedback'].str.strip().str.lower() == 'done'
     
     df_refuelled = df_merged[is_done].copy()
     df_active = df_merged[~is_done].copy()
 
-    # Columns we want to display to the user
-    display_cols = ['Flight', 'Recommended Load', 'Dep', 'Sector', 'Bay', 'Bowser', 'Call Sign', 'ETA', 'Crew', 'Comment', 'FieldFeedback']
+    # 5. Exact column order and visibility (ETA and FieldFeedback are hidden)
+    display_cols = ['Flight', 'Load', 'Dep', 'Des', 'Sign', 'Bay', 'Crew', 'Bowser', 'Comment']
 
     # --- UI PRESENTATION ---
     tab_active, tab_refuelled = st.tabs(["✈️ ACTIVE FLIGHTS", "✅ REFUELLED"])
@@ -130,7 +140,7 @@ if not df_live.empty:
                 df_active[display_cols],
                 hide_index=True,
                 use_container_width=True,
-                height=600
+                height=700 # Increased height for full screen feel
             )
         else:
             st.info("No active flights at the moment.")
@@ -141,7 +151,7 @@ if not df_live.empty:
                 df_refuelled[display_cols],
                 hide_index=True,
                 use_container_width=True,
-                height=600
+                height=700
             )
         else:
             st.info("No flights have been marked as 'done' yet.")
@@ -150,5 +160,6 @@ else:
     st.warning("Waiting for data from Google Sheets...")
 
 # --- SAFE REFRESH ---
+st.markdown("---") # Adds a subtle line before the button
 if st.button("🔄 Refresh Data"):
     st.rerun()
