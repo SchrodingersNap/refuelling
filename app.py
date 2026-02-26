@@ -58,8 +58,9 @@ def fetch_and_calculate_fuel_stats():
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
         
+        # Changed to round to 1 decimal place
         df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.90).reset_index()
-        df_agg['Qty'] = df_agg['Qty'].round(2)
+        df_agg['Qty'] = df_agg['Qty'].round(1)
         
         return df_agg
     except Exception as e: 
@@ -102,10 +103,8 @@ def fetch_live_data():
 def highlight_bowser_row(row):
     """Colors the row light green if a Bowser is assigned."""
     bowser_val = str(row['Bowser']).strip()
-    # If the Bowser cell is not empty, color the whole row light green
     if bowser_val != "" and bowser_val.lower() != "nan":
         return ['background-color: #e8f5e9'] * len(row)
-    # Otherwise, leave it default
     return [''] * len(row)
 
 # --- MAIN APPLICATION ---
@@ -123,7 +122,9 @@ if not df_live.empty:
         'Call Sign': 'Sign'
     }, inplace=True)
     
-    df_merged['Load'] = df_merged['Load'].fillna("--")
+    # NEW: Formats the Load column to exactly 1 decimal place, or uses "--" if no data is found
+    df_merged['Load'] = df_merged['Load'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "--")
+    
     df_merged = df_merged[df_merged['Flight'] != ""]
 
     is_done = df_merged['FieldFeedback'].str.strip().str.lower() == 'done'
@@ -138,10 +139,8 @@ if not df_live.empty:
 
     with tab_active:
         if not df_active.empty:
-            # 1. Apply the color styling ONLY to the active flights
             styled_active = df_active[display_cols].style.apply(highlight_bowser_row, axis=1)
             
-            # 2. Display the styled dataframe
             st.dataframe(
                 styled_active,
                 hide_index=True,
@@ -153,7 +152,6 @@ if not df_live.empty:
 
     with tab_refuelled:
         if not df_refuelled.empty:
-            # Display unstyled dataframe for the refuelled tab
             st.dataframe(
                 df_refuelled[display_cols],
                 hide_index=True,
