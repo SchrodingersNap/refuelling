@@ -96,7 +96,7 @@ st.markdown("""
             gap: 15px;
             padding: 20px;
         }
-        .info-group { width: 45%; } /* Forces 2-column grid on mobile */
+        .info-group { width: 45%; } 
         .info-group.comment-group { width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #E2E8F0; }
         .comment-text { max-width: 100%; }
         .stTabs [data-baseweb="tab-list"] { padding: 10px 10px 0px 10px; justify-content: center; }
@@ -154,7 +154,9 @@ def render_cards(df, is_active_tab=True):
         st.markdown('<div style="text-align:center; padding: 40px; color:#94A3B8; font-weight:600;">No flights found.</div>', unsafe_allow_html=True)
         return
 
-    html_block = '<div>'
+    # Using a list to combine the HTML strictly without weird Markdown indentation
+    html_parts = []
+    
     for _, row in df.iterrows():
         # Clean up data
         bowser = str(row['Bowser']).strip()
@@ -169,45 +171,22 @@ def render_cards(df, is_active_tab=True):
         card_class = "flight-card card-active" if has_bowser and is_active_tab else "flight-card"
         bowser_html = f'<span class="value bowser-badge">🚛 {bowser}</span>' if has_bowser else '<span class="value sub-text">--</span>'
 
-        # Build Card HTML
-        html_block += f"""
-        <div class="{card_class}">
-            <div class="info-group">
-                <span class="label">Flight</span>
-                <span class="value flight-id">{row['Flight']}</span>
-            </div>
-            <div class="info-group">
-                <span class="label">Load</span>
-                <span class="value load-val">{row['Load']}</span>
-            </div>
-            <div class="info-group">
-                <span class="label">Dep</span>
-                <span class="value">{row['Dep']}</span>
-            </div>
-            <div class="info-group">
-                <span class="label">Des / Sign</span>
-                <span class="value">{row['Des']} <span class="sub-text">| {row['Sign']}</span></span>
-            </div>
-            <div class="info-group">
-                <span class="label">Bay</span>
-                <span class="value bay-val">{row['Bay']}</span>
-            </div>
-            <div class="info-group">
-                <span class="label">Crew</span>
-                <span class="value sub-text">{crew_display}</span>
-            </div>
-            <div class="info-group">
-                <span class="label">Bowser</span>
-                {bowser_html}
-            </div>
-            <div class="info-group comment-group">
-                <span class="label">Comment</span>
-                <span class="value comment-text">{comment_display}</span>
-            </div>
-        </div>
-        """
-    html_block += '</div>'
-    st.markdown(html_block, unsafe_allow_html=True)
+        # Build Card HTML perfectly flushed to the left to prevent Markdown code block triggers
+        card_html = f"""<div class="{card_class}">
+<div class="info-group"><span class="label">Flight</span><span class="value flight-id">{row['Flight']}</span></div>
+<div class="info-group"><span class="label">Load</span><span class="value load-val">{row['Load']}</span></div>
+<div class="info-group"><span class="label">Dep</span><span class="value">{row['Dep']}</span></div>
+<div class="info-group"><span class="label">Des / Sign</span><span class="value">{row['Des']} <span class="sub-text">| {row['Sign']}</span></span></div>
+<div class="info-group"><span class="label">Bay</span><span class="value bay-val">{row['Bay']}</span></div>
+<div class="info-group"><span class="label">Crew</span><span class="value sub-text">{crew_display}</span></div>
+<div class="info-group"><span class="label">Bowser</span>{bowser_html}</div>
+<div class="info-group comment-group"><span class="label">Comment</span><span class="value comment-text">{comment_display}</span></div>
+</div>"""
+        html_parts.append(card_html)
+        
+    # Combine and render
+    st.markdown("".join(html_parts), unsafe_allow_html=True)
+
 
 # --- MAIN APPLICATION ---
 
