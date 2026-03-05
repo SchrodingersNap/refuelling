@@ -16,19 +16,42 @@ st.set_page_config(page_title="Refuel Ops Dashboard", page_icon="⛽", layout="w
 # Refreshes the app every 5 minutes (300,000 milliseconds)
 st_autorefresh(interval=300000, limit=None, key="auto_refresh_timer")
 
-# --- CSS FOR CLEAN FULL-SCREEN LAYOUT ---
+# --- CSS FOR MOBILE & DESKTOP LAYOUT ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
     header {visibility: hidden;} 
     footer {visibility: hidden;}
-    /* Pushes the content to the very edges of the screen */
+    
+    /* Desktop layout - Pushes content to the edges */
     .block-container { 
         padding-top: 0rem; 
         padding-bottom: 0rem; 
         padding-left: 1rem; 
         padding-right: 1rem;
         max-width: 100%;
+    }
+
+    /* MOBILE SPECIFIC LAYOUT */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 0rem;
+            padding-left: 0.2rem; /* Minimum padding for max table width */
+            padding-right: 0.2rem;
+        }
+        /* Make tabs larger for easy thumb tapping */
+        button[data-baseweb="tab"] {
+            font-size: 16px !important;
+            padding: 10px !important;
+        }
+        /* Make the refresh button large and thumb-friendly */
+        .stButton>button {
+            width: 100%;
+            height: 50px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 8px;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -58,7 +81,6 @@ def fetch_and_calculate_fuel_stats():
         df_fuel['JoinKey'] = df_fuel['Flight_ID'].apply(normalize_flight_id)
         df_fuel['Qty'] = pd.to_numeric(df_fuel['Qty'], errors='coerce')
         
-        # Changed to round to 1 decimal place
         df_agg = df_fuel.groupby('JoinKey')['Qty'].quantile(0.90).reset_index()
         df_agg['Qty'] = df_agg['Qty'].round(1)
         
@@ -122,7 +144,6 @@ if not df_live.empty:
         'Call Sign': 'Sign'
     }, inplace=True)
     
-    # NEW: Formats the Load column to exactly 1 decimal place, or uses "--" if no data is found
     df_merged['Load'] = df_merged['Load'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "--")
     
     df_merged = df_merged[df_merged['Flight'] != ""]
@@ -145,7 +166,7 @@ if not df_live.empty:
                 styled_active,
                 hide_index=True,
                 use_container_width=True,
-                height=700 
+                height=650 # Slightly reduced to ensure the refresh button is visible on phones
             )
         else:
             st.info("No active flights at the moment.")
@@ -156,7 +177,7 @@ if not df_live.empty:
                 df_refuelled[display_cols],
                 hide_index=True,
                 use_container_width=True,
-                height=700
+                height=650
             )
         else:
             st.info("No flights have been marked as 'done' yet.")
